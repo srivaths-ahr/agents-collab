@@ -1,0 +1,22 @@
+# --- Runtime artifacts the driver generates (not source) ---
+.loop/
+plan.md
+verdict.json
+clarifications.md
+clarifications_needed.json
+
+# --- Per-run USER content, not part of the tool. Ignored so private tasks /
+#     codebase maps never get committed into this public tool repo. ---
+task.md
+context.md
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/

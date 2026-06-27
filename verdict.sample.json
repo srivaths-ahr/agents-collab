@@ -1,0 +1,39 @@
+{
+  "status": "fail",
+  "criteria": [
+    {
+      "id": "C1",
+      "description": "configure() is idempotent across repeated calls",
+      "met": true,
+      "evidence": "src/core/Collector.swift: configure() now guards on a `didConfigure` flag and returns early on the second call."
+    },
+    {
+      "id": "C2",
+      "description": "collect() rejects payloads larger than 256KB with a typed error",
+      "met": false,
+      "evidence": "No size check found in collect(); src/core/Collector.swift still appends without bounding length. PayloadTooLarge error type is not defined anywhere in the diff."
+    },
+    {
+      "id": "C3",
+      "description": "public API surface is unchanged for existing callers",
+      "met": true,
+      "evidence": "Diff only adds internal members; no existing public signatures were modified or removed."
+    }
+  ],
+  "tests": {
+    "ran": true,
+    "passed": false,
+    "summary": "2 failed, 41 passed — CollectorTests.testRejectsOversizePayload, testErrorTypeIsTyped"
+  },
+  "reasons": [
+    "C2 not met: collect() in src/core/Collector.swift has no 256KB bound; oversize payloads are still accepted.",
+    "C2 not met: the typed error (PayloadTooLarge) required by the criterion is not declared.",
+    "Tests testRejectsOversizePayload and testErrorTypeIsTyped fail for the same reason as C2."
+  ],
+  "next_actions": [
+    "Add a `PayloadTooLarge` error to the SDK's public error enum.",
+    "In collect(), measure encoded byte length and throw PayloadTooLarge when it exceeds 256 * 1024 before appending.",
+    "Do not modify the failing tests; make them pass."
+  ],
+  "confidence": "high"
+}

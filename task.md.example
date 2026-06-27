@@ -1,0 +1,45 @@
+# Task (example)
+
+> This is a sample, written to pair with `context.md.example` and match the
+> shape of `verdict.sample.json`. Copy it to `task.md` and replace with your own.
+> The criteria below are deliberately checkable — that is what lets the verifier
+> and the test gate decide "done" objectively.
+
+## Goal
+
+Make the Collector SDK safe against oversized and repeated initialization: bound
+the payload size with a typed error, and make `configure()` idempotent — without
+changing the existing public API surface.
+
+## Acceptance criteria
+
+1. **C1 — `configure()` is idempotent.** Calling `configure(options:)` more than
+   once does not re-initialize or duplicate state; the second and later calls are
+   safe no-ops. Covered by a test in `CollectorTests`.
+2. **C2 — `collect()` bounds payload size.** If an assembled payload exceeds
+   256 KB (measured via `Encoding.encodedByteLength`), `collect()` throws a new
+   `PayloadTooLarge` case on the public `Errors` enum instead of enqueuing it.
+   Payloads at or under the limit are unaffected. Covered by tests in
+   `CollectorTests`.
+3. **C3 — public API is unchanged for existing callers.** No existing public
+   signature on `Collector` is modified or removed; only additive changes
+   (a new error case, internal guards) are allowed.
+
+## In scope
+
+- `src/core/Collector.swift` (guards in `configure()` and `collect()`)
+- `src/core/Errors.swift` (the new `PayloadTooLarge` case)
+- `tests/CollectorTests.swift` (new tests for C1 and C2)
+
+## Out of scope
+
+- `src/net/Uploader.swift` and retry/backoff behavior.
+- Any change to `Payload`'s shape or to existing public method signatures.
+- Performance refactors beyond what C1–C3 require.
+
+## Notes / constraints
+
+- `collect()` is on a hot path — the size check must be O(1)-ish, no extra
+  serialization passes; reuse `Encoding.encodedByteLength`.
+- The 256 KB limit is `256 * 1024` bytes of the encoded payload.
+- Do not modify existing tests; add new ones and make them pass.

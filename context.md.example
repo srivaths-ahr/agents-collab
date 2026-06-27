@@ -1,0 +1,61 @@
+# context.md (example)
+
+> This is a sample. Copy it to `context.md` and replace it with a real map of
+> YOUR codebase. The planner reads this first to orient itself before touching
+> code, so keep it compact and accurate — a stale map produces bad plans.
+> Regenerate it only when the architecture materially changes, not every run.
+
+## What this project is
+
+A small client SDK ("Collector") that gathers signals and ships them to a
+backend. Public surface is three methods on one class. The example task in
+`task.md.example` operates on this surface.
+
+## Layout
+
+```
+src/
+  core/
+    Collector.swift     # the public class: configure(), collect(), conclude()
+    Payload.swift       # the data assembled by collect()
+    Errors.swift        # public error enum returned across the API boundary
+  net/
+    Uploader.swift      # batches payloads and POSTs them; retry/backoff here
+  util/
+    Encoding.swift      # JSON encoding + byte-size helpers
+tests/
+  CollectorTests.swift  # behavior of configure/collect/conclude
+  UploaderTests.swift    # batching + retry behavior
+```
+
+## Key components
+
+- **Collector** — the only public type. `configure(options:)` sets up state,
+  `collect()` assembles and enqueues a `Payload`, `conclude()` flushes and tears
+  down. Treat this class's public signatures as a stability contract.
+- **Errors** — the public error enum. Anything thrown across the API boundary
+  must be a case here; never leak internal/library errors to callers.
+- **Encoding** — has `encodedByteLength(_:)`, the canonical way to measure a
+  payload's serialized size. Use it rather than re-measuring.
+
+## Conventions
+
+- Match existing file style; do not reformat untouched code.
+- Public API changes are high-risk — avoid unless the task explicitly calls for
+  one, and never change an existing public signature silently.
+- New error conditions are surfaced as cases on the `Errors` enum.
+
+## How to run tests
+
+```
+swift test          # full suite
+swift test --filter CollectorTests
+```
+
+Tests are the objective gate for the loop; wire this into `--test-command`.
+
+## Gotchas
+
+- `collect()` is on a hot path; avoid extra allocations or synchronous I/O.
+- `configure()` may be called more than once by integrators — repeated calls
+  must be safe (idempotent), not cumulative.
