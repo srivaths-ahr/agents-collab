@@ -75,12 +75,14 @@ MAX_ITERATIONS = 8  # hard cap; loop stops even if not "pass"
 MAX_IDENTICAL_FAILURES = (
     2  # stop if the loop stalls (same failure / no new diff) this many times
 )
+MAX_COST_USD = 0.0  # hard cap on cumulative Claude spend; 0.0 = no dollar limit
 
-# ---- TEST GATE (the objective half of verification) ----
-# Deterministic command the driver runs after each execute. Its pass/fail is
-# ground truth handed to the verifier.
-# Empty string = skip, judge on diff alone.
-TEST_COMMAND = ""  # e.g. "pytest -q"  |  "npm test --silent"  |  "swift test"
+# ---- TEST / GATE COMMANDS (the objective half of verification) ----
+# Deterministic commands the driver runs after each execute. ALL must pass; their
+# combined pass/fail is the ground truth handed to the verifier. Empty list = skip
+# and judge on the diff alone. A list lets you gate on lint + build + test as
+# separate, independently-reported checks.
+TEST_COMMANDS = []  # e.g. ["ruff check .", "pytest -q"]  |  ["swift build", "swift test"]
 
 # ---- PATHS (relative to REPO_ROOT) ----
 REPO_ROOT = "."
@@ -277,13 +279,22 @@ def staged_diff_against(baseline):
 
 
 def run_tests():
-    """Returns (ran: bool, passed: bool, header+output: str)."""
-    if not TEST_COMMAND.strip():
-        return False, True, "TESTS: SKIPPED\n(no TEST_COMMAND configured)"
-    rc, out, err = run(["bash", "-lc", TEST_COMMAND], timeout=CURSOR_TIMEOUT)
-    passed = rc == 0
-    header = "TESTS: PASSED" if passed else "TESTS: FAILED"
-    return True, passed, f"{header}\n$ {TEST_COMMAND}\n{out}\n{err}"
+    """Run each configured gate in order; ALL must pass. Returns
+    (ran: bool, passed: bool, output: str). The output's FIRST LINE is the overall
+    "TESTS: PASSED/FAILED/SKIPPED" status the verifier keys on, followed by a
+    per-gate breakdown. A gate timeout raises StepError and stops the loop."""
+    gates = [c for c in TEST_COMMANDS if c.strip()]
+    if not gates:
+        return False, True, "TESTS: SKIPPED\n(no test/gate command configured)"
+    all_passed = True
+    sections = []
+    for cmd in gates:
+        rc, out, err = run(["bash", "-lc", cmd], timeout=CURSOR_TIMEOUT)
+        passed = rc == 0
+        all_passed = all_passed and passed
+        sections.append(f"[{'PASS' if passed else 'FAIL'}] $ {cmd}\n{out}{err}")
+    header = "TESTS: PASSED" if all_passed else "TESTS: FAILED"
+    return True, all_passed, header + "\n" + "\n\n".join(sections)
 
 
 # ============================================================================
@@ -626,6 +637,12 @@ def main():
     final_status = "incomplete"
 
     for it in range(1, MAX_ITERATIONS + 1):
+        if MAX_COST_USD > 0 and total_cost >= MAX_COST_USD:
+            final_status = "cost_exhausted"
+            banner(
+                f"STOPPED — Claude spend ${total_cost:.4f} hit cap ${MAX_COST_USD:.2f}"
+            )
+            break
         try:
             total_cost += plan_step(it, prev_verdict)
             total_cost += execute_step(it)
@@ -683,7 +700,8 @@ def parse_cli_overrides():
     """Let the three model variables (and a couple of knobs) be set at launch
     without editing the file."""
     global PLAN_CLAUDE_MODEL_NAME, IMPLEMENTATION_MODEL_NAME, EXECUTOR_BACKEND
-    global VERIFICATION_CLAUDE_MODEL_NAME, MAX_ITERATIONS, TEST_COMMAND, REPO_ROOT
+    global VERIFICATION_CLAUDE_MODEL_NAME, MAX_ITERATIONS, TEST_COMMANDS, REPO_ROOT
+    global MAX_COST_USD
     p = argparse.ArgumentParser(description="Agentic plan/execute/verify loop.")
     p.add_argument("--plan-model", default=PLAN_CLAUDE_MODEL_NAME)
     p.add_argument(
@@ -699,7 +717,19 @@ def parse_cli_overrides():
     )
     p.add_argument("--verify-model", default=VERIFICATION_CLAUDE_MODEL_NAME)
     p.add_argument("--max-iterations", type=int, default=MAX_ITERATIONS)
-    p.add_argument("--test-command", default=TEST_COMMAND)
+    p.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=MAX_COST_USD,
+        help="hard cap on cumulative Claude spend in USD (0 = no limit)",
+    )
+    p.add_argument(
+        "--test-command",
+        action="append",
+        default=None,
+        help="deterministic gate; repeat for multiple (e.g. lint, build, test). "
+        "ALL must pass. Omit to judge on the diff alone.",
+    )
     p.add_argument("--repo", default=REPO_ROOT, help="path to the target git repo")
     a = p.parse_args()
     PLAN_CLAUDE_MODEL_NAME = a.plan_model
@@ -707,7 +737,9 @@ def parse_cli_overrides():
     IMPLEMENTATION_MODEL_NAME = a.impl_model
     VERIFICATION_CLAUDE_MODEL_NAME = a.verify_model
     MAX_ITERATIONS = a.max_iterations
-    TEST_COMMAND = a.test_command
+    MAX_COST_USD = a.max_cost_usd
+    if a.test_command is not None:  # keep module-level TEST_COMMANDS if flag unused
+        TEST_COMMANDS = a.test_command
     REPO_ROOT = a.repo
 
 

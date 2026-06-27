@@ -65,9 +65,13 @@ python driver.py \
   --plan-model opus \
   --executor codex --impl-model gpt-5.4 \
   --verify-model haiku \
-  --test-command "pytest -q" \
-  --max-iterations 8
+  --test-command "ruff check ." --test-command "pytest -q" \
+  --max-iterations 8 --max-cost-usd 5.00
 ```
+
+`--test-command` is repeatable: pass it once per gate (lint, build, test) and
+**all** must pass. `--max-cost-usd` stops the loop once cumulative Claude spend
+reaches the cap (`0` = no limit).
 
 Changes are **staged but never committed** — run on a dedicated branch or git
 worktree, then review and commit (or discard) yourself.
@@ -82,8 +86,9 @@ Set defaults at the top of `driver.py`, or override per run:
 | `--executor`       | `cursor` · `claude` · `codex` · `gemini` · `antigravity` |
 | `--impl-model`     | executor model slug for the chosen backend               |
 | `--verify-model`   | Claude model for verification (e.g. `haiku`)             |
-| `--test-command`   | deterministic test gate; its pass/fail is ground truth   |
+| `--test-command`   | deterministic gate; pass/fail is ground truth. Repeatable — all gates must pass |
 | `--max-iterations` | hard cap on loop rounds                                  |
+| `--max-cost-usd`   | hard cap on cumulative Claude spend in USD (0 = no limit) |
 | `--repo`           | path to the target git repo (default: current dir)       |
 
 ## Executors
@@ -108,7 +113,8 @@ Set defaults at the top of `driver.py`, or override per run:
 - **Executor resilience** — transient executor failures (hang/timeout/non-zero)
   are retried with backoff; a missing CLI or bad config aborts immediately.
 - **Stop conditions** — `pass` (done), `blocked` (needs a human), `stalled` (no
-  progress across rounds), budget exhausted, or malformed verifier output.
+  progress across rounds), iteration budget or `--max-cost-usd` exhausted, or
+  malformed verifier output.
 - **Non-destructive** — the driver stages to compute diffs but never commits,
   resets, or deletes.
 
@@ -126,14 +132,16 @@ AGENTS.md            standing rules auto-loaded by Cursor / Codex executors
 verdict.sample.json  example verifier output
 task.md.example      filled-in sample task (copy to task.md)
 context.md.example   sample codebase map (copy to context.md)
-README.md · CONTRIBUTING.md · LICENSE · .gitignore
+README.md · CONTRIBUTING.md · SECURITY.md · LICENSE · .gitignore
 ```
 
 ## Safety
 
 This runs AI coding agents with **auto-approved file edits**. Only point it at a
 repository and branch you can throw away, ideally inside a git worktree or a
-disposable container. Review every diff before merging.
+disposable container. Review every diff before merging. See
+[SECURITY.md](SECURITY.md) for the full trust model, prompt-injection exposure,
+and how to report a vulnerability.
 
 ## License
 

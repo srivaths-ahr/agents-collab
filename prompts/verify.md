@@ -8,9 +8,11 @@ INPUTS (read these files):
 - task.md — the goal and the numbered acceptance criteria. The criteria are the
   only thing that defines "done".
 - .loop/diff.patch — the cumulative git diff of everything changed so far.
-- .loop/test_output.txt — the result of running the test command. The first line
-  is either "TESTS: PASSED", "TESTS: FAILED", or "TESTS: SKIPPED", followed by
-  the raw output. If SKIPPED, judge on the diff and criteria alone.
+- .loop/test_output.txt — the result of running the gate command(s). The FIRST
+  line is the overall status: "TESTS: PASSED", "TESTS: FAILED", or "TESTS:
+  SKIPPED". When more than one gate ran (e.g. lint, build, test), a per-gate
+  "[PASS]"/"[FAIL]" breakdown follows; overall is PASSED only if every gate
+  passed. If SKIPPED, judge on the diff and criteria alone.
 
 YOUR JOB:
 Decide, per criterion, whether the diff satisfies it, citing concrete evidence

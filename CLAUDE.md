@@ -67,7 +67,7 @@ content, never committed into this tool repo.
 - **Driver owns control flow; prompts own behavior.** Don't bake role behavior into Python,
   and don't put loop/stop logic into a prompt.
 - **`verify.md` and the driver's parser move together.** The `verdict.json` shape is parsed
-  in `verify_step` (status, criteria, reasons, next_actions). Change the schema in _both_
+  in `verify_step` (status, criteria, reasons, next*actions). Change the schema in \_both*
   `prompts/verify.md` and `driver.py`, and update `verdict.sample.json`, in the same change.
 - **Standard library only.** No pip dependencies, ever. If a feature seems to need one, that
   is a signal to reconsider the feature.
@@ -83,8 +83,8 @@ content, never committed into this tool repo.
 reason) and its subclass `FatalError` (non-retryable — missing CLI, unknown backend, bad
 config — abort at once). `NeedsClarification` carries open questions to halt the loop
 cleanly before any planning spend. Stop conditions: `pass`, `blocked` (human needed),
-`stalled` (same failure + same diff `MAX_IDENTICAL_FAILURES` times), budget exhausted, or
-malformed verifier output.
+`stalled` (same failure + same diff `MAX_IDENTICAL_FAILURES` times), iteration budget or
+`MAX_COST_USD` exhausted, or malformed verifier output.
 
 ## Adding an executor backend
 
