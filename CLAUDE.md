@@ -13,7 +13,10 @@ editing. There is no package, no server, no pip dependencies — **standard libr
 ## Commands
 
 ```bash
-# Sanity-check that the driver still parses/imports (closest thing to a test suite):
+# Unit tests (stdlib unittest — no dependencies). Also: `make test` / `make check`.
+python -m unittest discover -s tests -t . -v
+
+# Byte-compile (catches syntax/import errors):
 python -m py_compile driver.py executors.py
 
 # Run the loop (first run with no task.md scaffolds a template and exits):
@@ -25,10 +28,14 @@ python driver.py \
   --max-iterations 8
 ```
 
-There is **no automated test suite**. To exercise loop logic end to end, do a smoke run
-against `task.md.example` + `context.md.example` inside a throwaway git repo and confirm
-the clarity gate, one iteration, and the stop conditions all still behave. CLI flags only
-override a subset of the config — most knobs are module-level constants at the top of
+The unit tests cover only the **pure** logic — the executor argv builders and the
+parse/branch helpers (`parse_claude_envelope`, `parse_executor_output`, `parse_verdict`,
+`strip_fences`, `progress_fingerprint`, `run_tests` aggregation). They spawn nothing, so
+keep those functions free of subprocess/file I/O; if you change `verdict.json` or an
+executor's flags, update the matching test. To exercise loop logic **end to end**, do a
+smoke run against `task.md.example` + `context.md.example` in a throwaway git repo and
+confirm the clarity gate, an iteration, and the stop conditions still behave. CLI flags
+only override a subset of the config — most knobs are module-level constants at the top of
 `driver.py` (timeouts, retry policy, clarify rounds, allowed-tools, stall threshold).
 
 ## Architecture

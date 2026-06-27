@@ -51,10 +51,13 @@ narrow on purpose.
 
 1. Fork and branch from `main`.
 2. Keep the diff minimal and focused on one thing.
-3. Sanity-check the driver still parses and imports:
+3. Run the tests and byte-compile (both are what CI runs):
    ```bash
-   python -m py_compile driver.py executors.py
+   make check    # = python -m unittest discover -s tests -t . + py_compile
    ```
+   If you changed an executor's flags or the `verdict.json` shape, update the
+   matching test in `tests/` in the same PR — keep the pure parse/argv helpers
+   free of subprocess and file I/O so they stay unit-testable.
 4. If you touched the loop, do a smoke run against the example task in a throwaway
    git repo (`task.md.example` + `context.md.example`) and confirm the clarity
    gate, an iteration, and the stop conditions still behave.

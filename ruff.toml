@@ -1,0 +1,10 @@
+# Lint config used by CI only. ruff is NOT a runtime dependency — the tool itself
+# is standard-library Python. The rule set is pinned explicitly so a future ruff
+# that expands its defaults can't suddenly fail CI on unrelated style nits.
+
+target-version = "py38"
+
+[lint]
+# pyflakes (F) + the high-signal pycodestyle subset. No E501 (line length) on
+# purpose — formatting is left to the formatter, not the linter.
+select = ["E4", "E7", "E9", "F"]

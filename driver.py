@@ -84,9 +84,7 @@ MAX_COST_USD = 0.0  # hard cap on cumulative Claude spend; 0.0 = no dollar limit
 # combined pass/fail is the ground truth handed to the verifier. Empty list = skip
 # and judge on the diff alone. A list lets you gate on lint + build + test as
 # separate, independently-reported checks.
-TEST_COMMANDS = (
-    []
-)  # e.g. ["ruff check .", "pytest -q"]  |  ["swift build", "swift test"]
+TEST_COMMANDS = []  # e.g. ["ruff check .", "pytest -q"]  |  ["swift build", "swift test"]
 
 # ---- PATHS (relative to REPO_ROOT) ----
 REPO_ROOT = "."
@@ -217,13 +215,20 @@ def run_claude(
         cmd += ["--allowedTools", ",".join(allowed_tools)]
 
     rc, out, err = run(cmd, timeout=timeout)
+    return parse_claude_envelope(out, err, rc)
 
-    # --output-format json envelope: result, total_cost_usd, is_error (guard all).
+
+def parse_claude_envelope(out, err, rc):
+    """Parse Claude Code's --output-format json envelope into
+    {result, cost, is_error, raw}. Pure (no subprocess), so it can be unit-tested
+    against sample and malformed output. Raises StepError if stdout is not the
+    expected JSON envelope. Guards every field; a nonzero rc forces is_error."""
     try:
         env = json.loads(out)
     except json.JSONDecodeError:
         raise StepError(
-            f"claude returned non-JSON envelope (rc={rc}). stderr:\n{err}\nstdout:\n{out[:800]}"
+            f"claude returned non-JSON envelope (rc={rc}). "
+            f"stderr:\n{err}\nstdout:\n{out[:800]}"
         )
     return {
         "result": env.get("result", ""),
@@ -247,6 +252,14 @@ def run_executor(prompt, *, backend, model, timeout=CURSOR_TIMEOUT):
             f"choose one of: {', '.join(executors.EXECUTORS)}"
         )
     rc, out, err = run(build(model, prompt), timeout=timeout)
+    return parse_executor_output(out, err, rc, backend)
+
+
+def parse_executor_output(out, err, rc, backend):
+    """Combine an executor's stdout/stderr and, for JSON-envelope backends, pull
+    the final result text and cost out of the envelope. Non-envelope backends are
+    plain text; a malformed envelope falls back to the combined text with zero
+    cost. Pure (no subprocess). Returns (rc, combined_output, cost)."""
     combined = out + ("\n" + err if err else "")
     cost = 0.0
     if backend in executors.JSON_ENVELOPE_BACKENDS:
@@ -419,23 +432,31 @@ def verify_step(iteration, baseline):
         allowed_tools=VERIFY_ALLOWED_TOOLS,
         bare=True,
     )
-    raw = strip_fences(res["result"])
     write_file(os.path.join(WORK_DIR, "verify_raw.txt"), res["result"])
+    verdict = parse_verdict(res["result"])
+    write_file(VERDICT_FILE, json.dumps(verdict, indent=2) + "\n")
+    log(f"verdict: {verdict['status'].upper()}  cost=${res['cost']:.4f}")
+    return verdict, res["cost"]
+
+
+def parse_verdict(raw_result):
+    """Parse the verifier's raw stdout into a verdict dict: tolerate ```json
+    fences, require valid JSON carrying a 'status' field. Pure (no subprocess, no
+    file writes), so it can be unit-tested against sample and malformed output.
+    Raises StepError on anything malformed (the caller has already saved the raw
+    text to verify_raw.txt for inspection)."""
+    raw = strip_fences(raw_result)
     try:
         verdict = json.loads(raw)
     except json.JSONDecodeError:
         raise StepError(
             f"verifier did not return valid JSON. Raw saved to {WORK_DIR}/verify_raw.txt"
         )
-
     if "status" not in verdict:
         raise StepError(
             f"verdict JSON missing 'status'. Raw saved to {WORK_DIR}/verify_raw.txt"
         )
-
-    write_file(VERDICT_FILE, json.dumps(verdict, indent=2) + "\n")
-    log(f"verdict: {verdict['status'].upper()}  cost=${res['cost']:.4f}")
-    return verdict, res["cost"]
+    return verdict
 
 
 # ============================================================================
@@ -524,11 +545,14 @@ def clarify_gate():
 
         block = ["", f"## Clarification round {round_no}"]
         for q in questions:
-            print(f"\nQ ({q.get('id','?')}): {q.get('question','')}")
+            print(f"\nQ ({q.get('id', '?')}): {q.get('question', '')}")
             if q.get("why"):
                 print(f"   (why it matters: {q['why']})")
             ans = input("   your answer > ").strip()
-            block += [f"- Q ({q.get('id','?')}): {q.get('question','')}", f"  A: {ans}"]
+            block += [
+                f"- Q ({q.get('id', '?')}): {q.get('question', '')}",
+                f"  A: {ans}",
+            ]
         existing = (
             read_file(CLARIFY_FILE)
             if os.path.exists(CLARIFY_FILE)
@@ -550,7 +574,7 @@ def halt_needs_clarification(nc, total_cost):
             prefix="?",
         )
         for q in nc.questions:
-            log(f"  - [{q.get('id','?')}] {q.get('question','')}")
+            log(f"  - [{q.get('id', '?')}] {q.get('question', '')}")
     for a in nc.assumptions:
         log(f"  if unanswered, planner would assume: {a}", prefix="·")
     write_file(
@@ -602,14 +626,19 @@ def preflight():
     os.makedirs(os.path.join(REPO_ROOT, WORK_DIR), exist_ok=True)
 
 
+def progress_fingerprint(reasons, diff_text):
+    """Hash of (failure reasons + diff). Identical fingerprints across iterations
+    mean the loop made no progress. Pure, so it's unit-testable."""
+    return hashlib.sha256(("||".join(reasons) + "\n" + diff_text).encode()).hexdigest()
+
+
 def stall_signature(verdict, diff_path):
     """A fingerprint of 'no progress': same failure reasons + same diff."""
-    reasons = "||".join(verdict.get("reasons", []))
     try:
         diff = read_file(os.path.join(REPO_ROOT, diff_path))
     except FileNotFoundError:
         diff = ""
-    return hashlib.sha256((reasons + "\n" + diff).encode()).hexdigest()
+    return progress_fingerprint(verdict.get("reasons", []), diff)
 
 
 def main():

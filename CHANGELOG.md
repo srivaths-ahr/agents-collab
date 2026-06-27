@@ -30,8 +30,14 @@ Initial public release.
 - `install.sh` + `make install TARGET=../repo` to drop the tool into a target repo
   without clobbering your `AGENTS.md` or in-progress task.
 - `SECURITY.md` documenting the trust model and vulnerability reporting.
+- **Test suite** (stdlib `unittest`, zero dependencies) covering the executor argv
+  builders and the pure parse/branch helpers; the parsing logic was factored out of
+  the subprocess calls (`parse_claude_envelope`, `parse_executor_output`,
+  `parse_verdict`, `progress_fingerprint`) so it is testable without spawning.
+- **CI** (GitHub Actions): byte-compile + unit tests on Python 3.8–3.12, plus a
+  CI-only `ruff` lint. Status badge in the README.
 - Non-destructive by design: the driver stages to diff but never commits, pushes,
   resets, or deletes.
 
-[unreleased]: https://github.com/SrivathsAripirala/agents-collab/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/SrivathsAripirala/agents-collab/releases/tag/v0.1.0
+[unreleased]: https://github.com/srivaths-ahr/agents-collab/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/srivaths-ahr/agents-collab/releases/tag/v0.1.0

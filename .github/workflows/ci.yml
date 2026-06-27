@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Byte-compile (no syntax/import errors)
+        run: python -m py_compile driver.py executors.py
+      - name: Unit tests (stdlib unittest — no dependencies)
+        run: python -m unittest discover -s tests -t . -v
+
+  lint:
+    name: lint (ruff, CI-only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # ruff is a CI convenience, never a runtime dependency of the tool.
+      - name: Install ruff
+        run: pip install ruff
+      - name: ruff check
+        run: ruff check --output-format=github .

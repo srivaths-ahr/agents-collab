@@ -1,5 +1,7 @@
 # agents-collab
 
+[![CI](https://github.com/srivaths-ahr/agents-collab/actions/workflows/ci.yml/badge.svg)](https://github.com/srivaths-ahr/agents-collab/actions/workflows/ci.yml)
+
 A small, model-agnostic **plan → execute → verify** loop for autonomous code changes.
 Claude does the thinking (planning and verification); a pluggable coding CLI does
 the editing. A single Python driver is the only stateful part — it owns the
@@ -182,10 +184,11 @@ prompts/
   verify.md          verifier contract + verdict.json schema
 AGENTS.md            standing rules auto-loaded by Cursor / Codex executors
 install.sh · Makefile   drop the tool into a target repo
+tests/               stdlib unittest suite (pure logic; no dependencies)
 verdict.sample.json  example verifier output
 task.md.example      filled-in sample task (copy to task.md)
 context.md.example   sample codebase map (copy to context.md)
-.github/             issue + PR templates
+.github/             issue + PR templates, CI workflow
 README.md · CONTRIBUTING.md · SECURITY.md · CHANGELOG.md · LICENSE · .gitignore
 ```
 
