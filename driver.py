@@ -84,7 +84,9 @@ MAX_COST_USD = 0.0  # hard cap on cumulative Claude spend; 0.0 = no dollar limit
 # combined pass/fail is the ground truth handed to the verifier. Empty list = skip
 # and judge on the diff alone. A list lets you gate on lint + build + test as
 # separate, independently-reported checks.
-TEST_COMMANDS = []  # e.g. ["ruff check .", "pytest -q"]  |  ["swift build", "swift test"]
+TEST_COMMANDS = (
+    []
+)  # e.g. ["ruff check .", "pytest -q"]  |  ["swift build", "swift test"]
 
 # ---- PATHS (relative to REPO_ROOT) ----
 REPO_ROOT = "."
@@ -705,9 +707,7 @@ def parse_cli_overrides():
     global VERIFICATION_CLAUDE_MODEL_NAME, MAX_ITERATIONS, TEST_COMMANDS, REPO_ROOT
     global MAX_COST_USD
     p = argparse.ArgumentParser(description="Agentic plan/execute/verify loop.")
-    p.add_argument(
-        "--version", action="version", version=f"agentic-loop {__version__}"
-    )
+    p.add_argument("--version", action="version", version=f"agentic-loop {__version__}")
     p.add_argument("--plan-model", default=PLAN_CLAUDE_MODEL_NAME)
     p.add_argument(
         "--executor",

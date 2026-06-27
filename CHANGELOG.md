@@ -33,5 +33,5 @@ Initial public release.
 - Non-destructive by design: the driver stages to diff but never commits, pushes,
   resets, or deletes.
 
-[Unreleased]: https://github.com/SrivathsAripirala/agents-collab/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/SrivathsAripirala/agents-collab/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/SrivathsAripirala/agents-collab/releases/tag/v0.1.0

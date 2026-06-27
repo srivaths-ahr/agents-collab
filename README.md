@@ -1,4 +1,4 @@
-# agentic-loop
+# agents-collab
 
 A small, model-agnostic **plan → execute → verify** loop for autonomous code changes.
 Claude does the thinking (planning and verification); a pluggable coding CLI does
