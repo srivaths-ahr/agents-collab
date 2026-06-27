@@ -21,8 +21,16 @@ move fast — verify against the tool's own docs before a long unattended run.
 def _cursor(model, prompt):
     """Cursor CLI. -p print mode + --force applies edits. Auto-reads AGENTS.md
     and .cursor/rules. Auth: `cursor-agent login` or CURSOR_API_KEY."""
-    return ["cursor-agent", "-p", "--force",
-            "--model", model, "--output-format", "text", prompt]
+    return [
+        "cursor-agent",
+        "-p",
+        "--force",
+        "--model",
+        model,
+        "--output-format",
+        "text",
+        prompt,
+    ]
 
 
 def _claude(model, prompt):
@@ -30,8 +38,17 @@ def _claude(model, prompt):
     planner, it must WRITE files, so it needs edit permission: acceptEdits
     auto-approves Edit/Write without prompting. Auto-reads CLAUDE.md / AGENTS.md.
     Returns a JSON envelope on stdout (see JSON_ENVELOPE_BACKENDS)."""
-    return ["claude", "-p", prompt, "--model", model,
-            "--permission-mode", "acceptEdits", "--output-format", "json"]
+    return [
+        "claude",
+        "-p",
+        prompt,
+        "--model",
+        model,
+        "--permission-mode",
+        "acceptEdits",
+        "--output-format",
+        "json",
+    ]
 
 
 def _codex(model, prompt):
@@ -40,9 +57,17 @@ def _codex(model, prompt):
     Auto-reads AGENTS.md — THE SAME FILE Cursor uses, so your standing rules are
     shared for free. Final message -> stdout, progress -> stderr. Model via -m
     (e.g. gpt-5.4, gpt-5.3-codex). Auth: `codex login` (ChatGPT) or API key."""
-    return ["codex", "exec", "--model", model,
-            "--sandbox", "workspace-write", "--ask-for-approval", "never",
-            prompt]
+    return [
+        "codex",
+        "exec",
+        "--model",
+        model,
+        "--sandbox",
+        "workspace-write",
+        "--ask-for-approval",
+        "never",
+        prompt,
+    ]
 
 
 def _gemini(model, prompt):
@@ -50,14 +75,22 @@ def _gemini(model, prompt):
 
     IMPORTANT: Google retired the free/Pro/Ultra Gemini CLI on 2026-06-18 and
     replaced it with Antigravity CLI (`agy`). This adapter targets the legacy
-    `gemini` binary, which still works if you have a paid GEMINI_API_KEY. If you
-    have migrated, use EXECUTOR_BACKEND="antigravity" instead.
+    `gemini` binary, which still works if you have a paid GEMINI_API_KEY.
+    If you have migrated, use EXECUTOR_BACKEND="antigravity" instead.
 
-    -p = headless; --yolo auto-approves all tool actions (file edits + shell) and
-    turns on its sandbox by default; -m selects the model. Auto-reads GEMINI.md
-    (note: different context filename from AGENTS.md)."""
-    return ["gemini", "-p", prompt, "-m", model, "--yolo",
-            "--output-format", "json"]
+    -p = headless; --yolo auto-approves all tool actions (file edits + shell)
+    and turns on its sandbox by default; -m selects the model.
+    Auto-reads GEMINI.md (note: different context filename from AGENTS.md)."""
+    return [
+        "gemini",
+        "-p",
+        prompt,
+        "-m",
+        model,
+        "--yolo",
+        "--output-format",
+        "json",
+    ]
 
 
 def _antigravity(model, prompt):
@@ -76,13 +109,14 @@ def _antigravity(model, prompt):
 
 # name -> adapter
 EXECUTORS = {
-    "cursor":      _cursor,
-    "claude":      _claude,
-    "codex":       _codex,
-    "gemini":      _gemini,
+    "cursor": _cursor,
+    "claude": _claude,
+    "codex": _codex,
+    "gemini": _gemini,
     "antigravity": _antigravity,
 }
 
-# Backends whose stdout is a JSON envelope (driver parses it for result + cost).
+# Backends whose stdout is a JSON envelope
+# (driver parses it for result + cost).
 # Everything else is treated as plain text.
 JSON_ENVELOPE_BACKENDS = {"claude"}

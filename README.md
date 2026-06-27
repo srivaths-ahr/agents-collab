@@ -76,25 +76,25 @@ worktree, then review and commit (or discard) yourself.
 
 Set defaults at the top of `driver.py`, or override per run:
 
-| Flag | Meaning |
-| --- | --- |
-| `--plan-model` | Claude model for planning (e.g. `opus`) |
-| `--executor` | `cursor` · `claude` · `codex` · `gemini` · `antigravity` |
-| `--impl-model` | executor model slug for the chosen backend |
-| `--verify-model` | Claude model for verification (e.g. `haiku`) |
-| `--test-command` | deterministic test gate; its pass/fail is ground truth |
-| `--max-iterations` | hard cap on loop rounds |
-| `--repo` | path to the target git repo (default: current dir) |
+| Flag               | Meaning                                                  |
+| ------------------ | -------------------------------------------------------- |
+| `--plan-model`     | Claude model for planning (e.g. `opus`)                  |
+| `--executor`       | `cursor` · `claude` · `codex` · `gemini` · `antigravity` |
+| `--impl-model`     | executor model slug for the chosen backend               |
+| `--verify-model`   | Claude model for verification (e.g. `haiku`)             |
+| `--test-command`   | deterministic test gate; its pass/fail is ground truth   |
+| `--max-iterations` | hard cap on loop rounds                                  |
+| `--repo`           | path to the target git repo (default: current dir)       |
 
 ## Executors
 
-| Backend | Command | Context file | Notes |
-| --- | --- | --- | --- |
-| `cursor` | `cursor-agent -p --force` | `AGENTS.md` | default |
-| `claude` | `claude -p --permission-mode acceptEdits` | `CLAUDE.md` / `AGENTS.md` | all-Claude pairing |
-| `codex` | `codex exec --sandbox workspace-write` | `AGENTS.md` | shares AGENTS.md with Cursor |
-| `gemini` | `gemini -p --yolo` | `GEMINI.md` | **legacy CLI; needs a paid key** |
-| `antigravity` | `agy --headless --approve all` | — | Gemini CLI's replacement; flags change fast — verify against current docs |
+| Backend       | Command                                   | Context file              | Notes                                                                     |
+| ------------- | ----------------------------------------- | ------------------------- | ------------------------------------------------------------------------- |
+| `cursor`      | `cursor-agent -p --force`                 | `AGENTS.md`               | default                                                                   |
+| `claude`      | `claude -p --permission-mode acceptEdits` | `CLAUDE.md` / `AGENTS.md` | all-Claude pairing                                                        |
+| `codex`       | `codex exec --sandbox workspace-write`    | `AGENTS.md`               | shares AGENTS.md with Cursor                                              |
+| `gemini`      | `gemini -p --yolo`                        | `GEMINI.md`               | **legacy CLI; needs a paid key**                                          |
+| `antigravity` | `agy --headless --approve all`            | —                         | Gemini CLI's replacement; flags change fast — verify against current docs |
 
 > Google retired the free/Pro/Ultra Gemini CLI in June 2026 in favor of
 > Antigravity (`agy`). Use `gemini` only if your legacy CLI is still active on a

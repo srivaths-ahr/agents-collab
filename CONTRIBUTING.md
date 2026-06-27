@@ -3,12 +3,12 @@
 Thanks for your interest in improving **agentic-loop**. This is a small,
 single-purpose tool; the bar for changes is "does it keep the loop simple,
 inspectable, and model-agnostic." Please read the design notes below before
-opening a PR — most of the value here is in *not* over-building.
+opening a PR — most of the value here is in _not_ over-building.
 
 ## Design principles (please preserve these)
 
 - **The driver owns control flow; the prompts own behavior.** `driver.py`
-  decides *when* things run and *when to stop*. `prompts/*.md` decide *how* each
+  decides _when_ things run and _when to stop_. `prompts/*.md` decide _how_ each
   agent behaves. Keep that separation — don't bake role behavior into Python, and
   don't put loop logic into a prompt.
 - **Agents are stateless one-shots; git + files are the contract.** State lives
