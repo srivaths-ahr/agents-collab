@@ -43,6 +43,11 @@ Initial public release.
   `parse_verdict`, `progress_fingerprint`) so it is testable without spawning.
 - **CI** (GitHub Actions): byte-compile + unit tests on Python 3.8–3.12, plus a
   CI-only `ruff` lint. Status badge in the README.
+- README docs for adopters: a **cost-expectations** section (where Claude spend
+  goes and how to bound it), an **executor compatibility matrix** (last-verified CLI
+  versions, since the backends drift), an explicit **platform note** (macOS/Linux;
+  Windows via WSL), and a **Troubleshooting** section mapping each stop status and
+  error to a cause and fix.
 - Non-destructive by design: the driver stages to diff but never commits, pushes,
   resets, or deletes.
 
