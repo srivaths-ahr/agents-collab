@@ -52,22 +52,24 @@ def _claude(model, prompt):
 
 
 def _codex(model, prompt):
-    """OpenAI Codex CLI. `codex exec` is the non-interactive one-shot mode.
-    workspace-write + approval 'never' = unattended edits confined to the repo.
-    Auto-reads AGENTS.md — THE SAME FILE Cursor uses, so your standing rules are
-    shared for free. Final message -> stdout, progress -> stderr. Model via -m
-    (e.g. gpt-5.4, gpt-5.3-codex). Auth: `codex login` (ChatGPT) or API key."""
-    return [
-        "codex",
-        "exec",
-        "--model",
-        model,
-        "--sandbox",
-        "workspace-write",
-        "--ask-for-approval",
-        "never",
-        prompt,
-    ]
+    """OpenAI Codex CLI, `codex exec` (the non-interactive one-shot mode).
+    `--sandbox workspace-write` confines edits to the repo; in exec mode codex
+    applies them without an interactive approval prompt. Auto-reads AGENTS.md — THE
+    SAME FILE Cursor uses, so your standing rules are shared for free. Final message
+    -> stdout, progress -> stderr. Auth: `codex login` (ChatGPT) or API key.
+
+    Pass an explicit model with --impl-model (e.g. gpt-5.4, gpt-5.3-codex), or use
+    'default'/'auto' to let codex pick the model from ~/.codex/config.toml.
+
+    NOTE (codex-cli 0.142.x): older versions took `--ask-for-approval never`; that
+    flag was removed, and exec now refuses to run unless the folder is a git repo
+    AND trusted by codex (approve it once interactively, else: "not inside a trusted
+    directory"). Verify flags against `codex exec --help` before a long run."""
+    argv = ["codex", "exec", "--sandbox", "workspace-write"]
+    if model and model.lower() not in ("default", "auto"):
+        argv += ["--model", model]
+    argv.append(prompt)
+    return argv
 
 
 def _gemini(model, prompt):
@@ -97,14 +99,18 @@ def _antigravity(model, prompt):
     """Antigravity CLI (`agy`) — Gemini CLI's replacement as of 2026-06-18.
 
     Different surface from `gemini`, and changing fast — VERIFY against current
-    `agy` docs before scripting:
-      * a non-TTY call HANGS silently without --headless (no approval prompt
-        ever renders), so --headless is mandatory here.
-      * approvals are expressed with an --approve policy, not --yolo.
-      * early builds auto-select the model and ignore an explicit model flag;
-        `model` is accepted below but may have no effect.
+    `agy --help` before scripting. Flags as of agy 1.0.13:
+      * `--print <prompt>` is the headless one-shot mode (the prompt is the FLAG'S
+        VALUE, not a positional — the old `--headless`/`--approve` flags were
+        removed and now error).
+      * `--dangerously-skip-permissions` auto-approves tool actions (file edits),
+        replacing the old `--approve all`.
+      * the model is auto-selected; no model flag is passed here.
+    NOTE: headless `agy` still requires its folder/project to be set up and trusted
+    for non-interactive use — otherwise `--print` can hang waiting on first-run
+    setup. Approve the folder in `agy` interactively once before an unattended run.
     """
-    return ["agy", "--headless", "--approve", "all", prompt]
+    return ["agy", "--dangerously-skip-permissions", "--print", prompt]
 
 
 # name -> adapter

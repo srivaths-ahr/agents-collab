@@ -117,8 +117,11 @@ CLAUDE_TIMEOUT = 600
 # (in an isolated worktree only) swap to PLAN_SKIP_PERMISSIONS = True.
 PLAN_ALLOWED_TOOLS = ["Read", "Grep", "Glob", "mcp__codegraph"]
 PLAN_SKIP_PERMISSIONS = False
-# VERIFY only needs to read the scratch files;
-# --bare keeps it lean and predictable.
+# VERIFY only needs to read the scratch files.
+# NOTE: we deliberately do NOT pass claude's --bare for verify/clarify. --bare
+# ("minimal mode") skips hooks/LSP/plugins — and on some setups that also skips the
+# plugin-provided login, so claude returns "Not logged in" for those steps while
+# plan (which omits --bare) works. Avoid it. (Observed on claude-cli 2.1.195.)
 VERIFY_ALLOWED_TOOLS = ["Read"]
 
 # ============================================================================
@@ -462,7 +465,6 @@ def verify_step(iteration, baseline):
         model=VERIFICATION_CLAUDE_MODEL_NAME,
         system_prompt_file=os.path.join(PROMPTS_DIR, "verify.md"),
         allowed_tools=VERIFY_ALLOWED_TOOLS,
-        bare=True,
     )
     write_file(os.path.join(WORK_DIR, "verify_raw.txt"), res["result"])
     verdict = parse_verdict(res["result"])
@@ -537,7 +539,6 @@ def triage_step():
         model=CLARIFY_MODEL_NAME,
         system_prompt_file=os.path.join(PROMPTS_DIR, "triage.md"),
         allowed_tools=["Read"],
-        bare=True,
     )
     write_file(os.path.join(WORK_DIR, "triage_raw.txt"), res["result"])
     try:
@@ -855,7 +856,6 @@ def dry_run():
         prompt=triage_instruction(),
         system_prompt_file=os.path.join(PROMPTS_DIR, "triage.md"),
         allowed_tools=["Read"],
-        bare=True,
     )
     _preview_claude(
         "PLAN  (iteration 1 — no previous verdict)",
@@ -882,7 +882,6 @@ def dry_run():
         prompt=verify_instruction(),
         system_prompt_file=os.path.join(PROMPTS_DIR, "verify.md"),
         allowed_tools=VERIFY_ALLOWED_TOOLS,
-        bare=True,
     )
 
     banner("DRY RUN — end (nothing was executed)")
