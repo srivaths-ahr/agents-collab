@@ -10,6 +10,25 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+### Added
+
+- `examples/romannumbers/` — a real end-to-end run (stubbed function → verified PASS
+  in one iteration) with the opus plan, the cursor diff, and the haiku verdict
+  committed under `run/`. Shows the loop working before you point it at your repo.
+
+### Fixed
+
+- **Executor flag drift, found by running the example against live CLIs:**
+  - `codex` adapter: dropped `--ask-for-approval never` (removed in codex-cli
+    0.142.x) and made `--model` optional (`default`/`auto` uses your codex config
+    default). `codex exec` now also requires a git repo trusted by codex.
+  - `antigravity` (`agy`) adapter: `--headless --approve all` → `--print <prompt>`
+    + `--dangerously-skip-permissions` (agy 1.0.13). Headless still needs the folder
+    trusted/set up for non-interactive use.
+- **Driver no longer passes claude's `--bare`** for the clarify/verify steps. On
+  some setups `--bare` ("minimal mode") skips plugin/hook-provided login, so those
+  steps returned "Not logged in" while plan (no `--bare`) worked.
+
 ## [0.1.0] — 2026-06-27
 
 Initial public release.

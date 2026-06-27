@@ -51,20 +51,28 @@ class TestExecutorArgv(unittest.TestCase):
         )
 
     def test_codex(self):
+        # codex-cli 0.142.x: no --ask-for-approval; explicit model is included.
         self.assertEqual(
             self.build("codex"),
             [
                 "codex",
                 "exec",
-                "--model",
-                MODEL,
                 "--sandbox",
                 "workspace-write",
-                "--ask-for-approval",
-                "never",
+                "--model",
+                MODEL,
                 PROMPT,
             ],
         )
+
+    def test_codex_default_model_omits_model_flag(self):
+        # 'default'/'auto' lets codex use the model from ~/.codex/config.toml.
+        for sentinel in ("default", "auto", "Default"):
+            argv = executors.EXECUTORS["codex"](sentinel, PROMPT)
+            self.assertNotIn("--model", argv, f"sentinel {sentinel!r}")
+            self.assertEqual(
+                argv, ["codex", "exec", "--sandbox", "workspace-write", PROMPT]
+            )
 
     def test_gemini(self):
         self.assertEqual(
@@ -73,9 +81,11 @@ class TestExecutorArgv(unittest.TestCase):
         )
 
     def test_antigravity(self):
+        # agy 1.0.13: --print <prompt> headless; --dangerously-skip-permissions
+        # auto-approves; model is auto-selected (no model flag).
         self.assertEqual(
             self.build("antigravity"),
-            ["agy", "--headless", "--approve", "all", PROMPT],
+            ["agy", "--dangerously-skip-permissions", "--print", PROMPT],
         )
 
 

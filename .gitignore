@@ -21,3 +21,16 @@ venv/
 .idea/
 .vscode/
 venv.sh
+
+# --- Worked examples are committed on purpose. The bare-name rules above
+#     (task.md, context.md, plan.md, verdict.json) would otherwise hide the
+#     example inputs and captured run artifacts anywhere in the tree. ---
+!examples/**/task.md
+!examples/**/context.md
+!examples/**/plan.md
+!examples/**/verdict.json
+# Belt and braces: never commit a bundled tool copy or scratch left in an example.
+examples/**/driver.py
+examples/**/executors.py
+examples/**/AGENTS.md
+examples/**/prompts/

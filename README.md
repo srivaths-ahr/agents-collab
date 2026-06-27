@@ -19,6 +19,10 @@ VERIFY   (Claude)    git diff + test output + acceptance criteria  →  verdict.
 The executor is swappable: **Cursor, Claude itself, OpenAI Codex, or Gemini /
 Antigravity**. Planning and verification always run on Claude.
 
+**See it actually run:** [`examples/romannumbers`](examples/romannumbers) is a real
+run — a stubbed function taken to a verified PASS in one iteration, with the opus
+plan, the cursor diff, and the haiku verdict all committed. Total Claude spend: $0.25.
+
 ## Why
 
 Use an expensive, long-thinking model where judgment pays off (planning and
@@ -138,7 +142,7 @@ The `doctor` subcommand (`python driver.py doctor`) takes the same `--executor` 
 | `claude`      | `claude -p --permission-mode acceptEdits` | `CLAUDE.md` / `AGENTS.md` | all-Claude pairing                                                        |
 | `codex`       | `codex exec --sandbox workspace-write`    | `AGENTS.md`               | shares AGENTS.md with Cursor                                              |
 | `gemini`      | `gemini -p --yolo`                        | `GEMINI.md`               | **legacy CLI; needs a paid key**                                          |
-| `antigravity` | `agy --headless --approve all`            | —                         | Gemini CLI's replacement; flags change fast — verify against current docs |
+| `antigravity` | `agy --print --dangerously-skip-permissions` | —                      | Gemini CLI's replacement; flags change fast — verify against current docs |
 
 > Google retired the free/Pro/Ultra Gemini CLI in June 2026 in favor of
 > Antigravity (`agy`). Use `gemini` only if your legacy CLI is still active on a
@@ -154,11 +158,16 @@ installed on your machine, and please PR an update here when you verify a backen
 
 | Backend       | CLI binary     | Last verified version | Verified on | Example model slug      |
 | ------------- | -------------- | --------------------- | ----------- | ----------------------- |
-| `cursor`      | `cursor-agent` | _not yet pinned_      | —           | `composer-2.5`          |
+| `cursor`      | `cursor-agent` | `2026.06.26-7079533`  | 2026-06-27  | `composer-2.5`          |
 | `claude`      | `claude`       | `2.1.195`             | 2026-06-27  | `opus`, `haiku`         |
-| `codex`       | `codex`        | _not yet pinned_      | —           | `gpt-5.4`, `gpt-5.3-codex` |
+| `codex`       | `codex`        | `0.142.3` (adapter)   | 2026-06-27  | codex default; or `gpt-5.x` |
 | `gemini`      | `gemini`       | _not yet pinned_      | —           | (legacy; paid key)      |
-| `antigravity` | `agy`          | _not yet pinned_      | —           | (auto-selected)         |
+| `antigravity` | `agy`          | `1.0.13` (adapter)    | 2026-06-27  | (auto-selected)         |
+
+> "(adapter)" = the adapter's flags were corrected for that CLI version, but a full
+> end-to-end run wasn't completed: `codex` hit an account usage limit and `agy`'s
+> headless mode needs per-folder trust/project setup. `cursor` ran a full task to a
+> verified PASS — see [`examples/romannumbers`](examples/romannumbers).
 
 > `claude` is also the engine for the plan / verify / clarify steps, so its
 > verified version above applies to those regardless of which executor you pick.
@@ -315,6 +324,7 @@ prompts/
   verify.md          verifier contract + verdict.json schema
 AGENTS.md            standing rules auto-loaded by Cursor / Codex executors
 install.sh · Makefile   drop the tool into a target repo
+examples/            worked runs with committed plan/diff/verdict artifacts
 tests/               stdlib unittest suite (pure logic; no dependencies)
 verdict.sample.json  example verifier output
 task.md.example      filled-in sample task (copy to task.md)

@@ -1,0 +1,24 @@
+diff --git a/roman.py b/roman.py
+index d78df7a..cb66dda 100644
+--- a/roman.py
++++ b/roman.py
+@@ -4,4 +4,18 @@ def to_roman(n: int) -> str:
+     Not implemented yet — see task.md. The test suite in test_roman.py defines
+     the exact expected behavior.
+     """
+-    raise NotImplementedError
++    if n < 1 or n > 3999:
++        raise ValueError("n must be in 1..3999")
++
++    pairs = [
++        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
++        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
++        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
++    ]
++
++    result = ""
++    for value, symbol in pairs:
++        while n >= value:
++            result += symbol
++            n -= value
++    return result
