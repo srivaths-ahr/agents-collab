@@ -34,6 +34,8 @@ import argparse
 import hashlib
 import json
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -85,6 +87,9 @@ MAX_COST_USD = 0.0  # hard cap on cumulative Claude spend; 0.0 = no dollar limit
 # and judge on the diff alone. A list lets you gate on lint + build + test as
 # separate, independently-reported checks.
 TEST_COMMANDS = []  # e.g. ["ruff check .", "pytest -q"]  |  ["swift build", "swift test"]
+
+# ---- MODES (set via CLI; see parse_cli_overrides) ----
+DRY_RUN = False  # --dry-run: print every command + prompt, but run/spend/edit nothing
 
 # ---- PATHS (relative to REPO_ROOT) ----
 REPO_ROOT = "."
@@ -204,6 +209,26 @@ def run_claude(
 ):
     """Invoke Claude Code headless. Returns dict: {result, cost, is_error, raw}.
     Model is selected per-invocation, so each role can run on a different one."""
+    cmd = build_claude_argv(
+        prompt,
+        model=model,
+        system_prompt_file=system_prompt_file,
+        allowed_tools=allowed_tools,
+        bare=bare,
+        skip_permissions=skip_permissions,
+    )
+    rc, out, err = run(cmd, timeout=timeout)
+    return parse_claude_envelope(out, err, rc)
+
+
+def build_claude_argv(
+    prompt, *, model, system_prompt_file, allowed_tools, bare=False,
+    skip_permissions=False,
+):
+    """Assemble the exact `claude` argv for a headless one-shot. Pure except for
+    reading the system-prompt file (its contents are passed via
+    --append-system-prompt). Shared by run_claude and the --dry-run preview so the
+    two can never drift."""
     cmd = ["claude", "-p", prompt, "--model", model, "--output-format", "json"]
     if bare:
         cmd.append("--bare")
@@ -213,9 +238,7 @@ def run_claude(
         cmd.append("--dangerously-skip-permissions")
     elif allowed_tools:
         cmd += ["--allowedTools", ",".join(allowed_tools)]
-
-    rc, out, err = run(cmd, timeout=timeout)
-    return parse_claude_envelope(out, err, rc)
+    return cmd
 
 
 def parse_claude_envelope(out, err, rc):
@@ -319,8 +342,9 @@ def run_tests():
 # ============================================================================
 
 
-def plan_step(iteration, prev_verdict):
-    banner(f"ITERATION {iteration} — PLAN  ({PLAN_CLAUDE_MODEL_NAME})")
+def plan_instruction(prev_verdict):
+    """The PLAN step's user prompt. Pure (modulo reading whether clarifications.md
+    exists); shared by plan_step and the --dry-run preview."""
     payload = [
         "Produce the implementation plan. Read these files in the repo:",
         f"- {TASK_FILE} (goal + acceptance criteria — the source of truth)",
@@ -346,9 +370,13 @@ def plan_step(iteration, prev_verdict):
             ),
         ]
     payload.append("\nOutput ONLY the plan markdown, per your instructions.")
+    return "\n".join(payload)
 
+
+def plan_step(iteration, prev_verdict):
+    banner(f"ITERATION {iteration} — PLAN  ({PLAN_CLAUDE_MODEL_NAME})")
     res = run_claude(
-        "\n".join(payload),
+        plan_instruction(prev_verdict),
         model=PLAN_CLAUDE_MODEL_NAME,
         system_prompt_file=os.path.join(PROMPTS_DIR, "plan.md"),
         allowed_tools=PLAN_ALLOWED_TOOLS,
@@ -398,6 +426,15 @@ def execute_step(iteration):
     )
 
 
+def verify_instruction():
+    """The VERIFY step's user prompt. Pure; shared by verify_step and --dry-run."""
+    return (
+        f"Read {TASK_FILE} (acceptance criteria), {WORK_DIR}/diff.patch (the work "
+        f"done), and {WORK_DIR}/test_output.txt (test result). Judge each criterion "
+        f"and output the verdict JSON exactly per your instructions — JSON only."
+    )
+
+
 def verify_step(iteration, baseline):
     banner(f"ITERATION {iteration} — VERIFY  ({VERIFICATION_CLAUDE_MODEL_NAME})")
 
@@ -420,13 +457,8 @@ def verify_step(iteration, baseline):
             "_no_diff": True,
         }, 0.0
 
-    instruction = (
-        f"Read {TASK_FILE} (acceptance criteria), {WORK_DIR}/diff.patch (the work "
-        f"done), and {WORK_DIR}/test_output.txt (test result). Judge each criterion "
-        f"and output the verdict JSON exactly per your instructions — JSON only."
-    )
     res = run_claude(
-        instruction,
+        verify_instruction(),
         model=VERIFICATION_CLAUDE_MODEL_NAME,
         system_prompt_file=os.path.join(PROMPTS_DIR, "verify.md"),
         allowed_tools=VERIFY_ALLOWED_TOOLS,
@@ -486,18 +518,22 @@ behavior over adjectives like "better" or "clean".>
 """
 
 
-def triage_step():
-    """Judge whether task.md is clear enough to plan. Returns (parsed, cost)."""
+def triage_instruction():
+    """The CLARITY-GATE user prompt. Pure; shared by triage_step and --dry-run."""
     files = [f"{TASK_FILE} (the task to evaluate)", f"{CONTEXT_FILE} (architecture)"]
     if os.path.exists(CLARIFY_FILE):
         files.append(f"{CLARIFY_FILE} (human answers already given — authoritative)")
-    instruction = (
+    return (
         "Evaluate task readiness. Read: "
         + "; ".join(files)
         + ". Output the clarity JSON exactly per your instructions — JSON only."
     )
+
+
+def triage_step():
+    """Judge whether task.md is clear enough to plan. Returns (parsed, cost)."""
     res = run_claude(
-        instruction,
+        triage_instruction(),
         model=CLARIFY_MODEL_NAME,
         system_prompt_file=os.path.join(PROMPTS_DIR, "triage.md"),
         allowed_tools=["Read"],
@@ -641,9 +677,227 @@ def stall_signature(verdict, diff_path):
     return progress_fingerprint(verdict.get("reasons", []), diff)
 
 
+# ============================================================================
+# Subcommands / modes (doctor, dry-run) — run before any spend
+# ============================================================================
+
+
+def _probe_tool(binary):
+    """(present, detail) for a CLI: is it on PATH, and what is its --version line?
+    Uses shutil.which so an absent tool never spawns a process; the --version probe
+    is best-effort (some CLIs differ) and its failure never flips presence."""
+    path = shutil.which(binary)
+    if not path:
+        return False, f"NOT FOUND — `{binary}` is not on PATH"
+    try:
+        rc, out, err = run([binary, "--version"], timeout=15)
+        line = (out.strip() or err.strip()).splitlines()
+        return True, (f"{line[0]}   [{path}]" if line else path)
+    except StepError:  # timeout (or a FileNotFoundError race) — still 'present'
+        return True, f"{path}   (--version probe failed)"
+
+
+def doctor():
+    """Preflight the environment: are the CLIs the loop needs installed, and is
+    this a git repo with the prompt files in place? Prints a checklist and exits 0
+    only if a real run could start — turning a mid-run 'command not found' into a
+    two-second report. Never spends or edits anything."""
+    banner("DOCTOR — environment preflight")
+    checks = []  # (ok, message) — these gate the exit code
+
+    git_ok, git_detail = _probe_tool("git")
+    checks.append((git_ok, f"git: {git_detail}"))
+
+    claude_ok, claude_detail = _probe_tool("claude")
+    checks.append((claude_ok, f"claude (plan / verify / clarify): {claude_detail}"))
+
+    # The executor's binary is argv[0] of its own adapter — single source of truth.
+    if EXECUTOR_BACKEND in executors.EXECUTORS:
+        exec_bin = executors.EXECUTORS[EXECUTOR_BACKEND]("MODEL", "PROMPT")[0]
+        exec_ok, exec_detail = _probe_tool(exec_bin)
+        checks.append(
+            (exec_ok, f"executor '{EXECUTOR_BACKEND}' ({exec_bin}): {exec_detail}")
+        )
+    else:
+        checks.append(
+            (
+                False,
+                f"executor '{EXECUTOR_BACKEND}': unknown backend "
+                f"(choose from {', '.join(executors.EXECUTORS)})",
+            )
+        )
+
+    if git_ok:
+        rc, _, _ = run(["git", "rev-parse", "--is-inside-work-tree"], timeout=30)
+        checks.append(
+            (
+                rc == 0,
+                "git repository: "
+                + (os.getcwd() if rc == 0 else f"{os.getcwd()} is NOT one"),
+            )
+        )
+    else:
+        checks.append((False, "git repository: skipped (git missing)"))
+
+    missing = [
+        p
+        for p in ("plan.md", "triage.md", "verify.md", "execute.md")
+        if not os.path.exists(os.path.join(PROMPTS_DIR, p))
+    ]
+    checks.append(
+        (
+            not missing,
+            "prompt files: "
+            + ("all present in prompts/" if not missing else "MISSING " + ", ".join(missing)),
+        )
+    )
+
+    for ok, msg in checks:
+        log(msg, prefix="✓" if ok else "✗")
+
+    # Informational only (not gating): task/context are user-provided or scaffolded.
+    for path, note in ((TASK_FILE, "the task to run"), (CONTEXT_FILE, "architecture map")):
+        here = os.path.exists(path)
+        log(
+            f"{path} ({note}): {'present' if here else 'missing — create before a run'}",
+            prefix="·" if here else "!",
+        )
+
+    all_ok = all(ok for ok, _ in checks)
+    banner("DOCTOR — all systems go" if all_ok else "DOCTOR — problems found above")
+    if not all_ok:
+        log("fix the ✗ items, then re-run `python driver.py doctor`.", prefix="!")
+    sys.exit(0 if all_ok else 1)
+
+
+def _indent(text, pad="    "):
+    return "\n".join(pad + line for line in text.splitlines())
+
+
+def _render_argv(argv, subs):
+    """Render an argv list as a readable single line for preview: replace the long
+    known values (the user prompt, the system-prompt contents) with the named
+    placeholders in `subs`, abbreviate anything else long, shell-quote the rest."""
+    parts = []
+    for tok in argv:
+        if tok in subs:
+            parts.append(subs[tok])
+        elif len(tok) > 80 or "\n" in tok:
+            parts.append(f"<{len(tok)} chars>")
+        else:
+            parts.append(shlex.quote(tok))
+    return " ".join(parts)
+
+
+def _preview_claude(title, *, model, prompt, system_prompt_file, allowed_tools,
+                    bare=False, skip_permissions=False):
+    banner(f"{title}  (claude, model={model})")
+    sys_content = read_file(system_prompt_file)
+    argv = build_claude_argv(
+        prompt,
+        model=model,
+        system_prompt_file=system_prompt_file,
+        allowed_tools=allowed_tools,
+        bare=bare,
+        skip_permissions=skip_permissions,
+    )
+    subs = {prompt: "<USER PROMPT ↓>", sys_content: f"<{system_prompt_file} contents>"}
+    log(
+        f"system prompt: {system_prompt_file} "
+        f"({len(sys_content)} chars, via --append-system-prompt)"
+    )
+    log(f"argv: {_render_argv(argv, subs)}")
+    print("\n  user prompt:\n" + _indent(prompt) + "\n", flush=True)
+
+
+def _preview_executor():
+    banner(f"EXECUTE  (executor={EXECUTOR_BACKEND}, model={IMPLEMENTATION_MODEL_NAME})")
+    prompt = read_file(os.path.join(PROMPTS_DIR, "execute.md"))
+    if EXECUTOR_BACKEND not in executors.EXECUTORS:
+        log(
+            f"unknown backend '{EXECUTOR_BACKEND}'; choose from "
+            f"{', '.join(executors.EXECUTORS)}",
+            prefix="✗",
+        )
+        return
+    argv = executors.EXECUTORS[EXECUTOR_BACKEND](IMPLEMENTATION_MODEL_NAME, prompt)
+    log(f"argv: {_render_argv(argv, {prompt: '<EXECUTE PROMPT ↓>'})}")
+    log("in a real run this command AUTO-APPLIES edits to the workspace.")
+    print(
+        "\n  execute prompt (from prompts/execute.md):\n" + _indent(prompt) + "\n",
+        flush=True,
+    )
+
+
+def dry_run():
+    """Print the exact commands and prompts the loop would issue for iteration 1 —
+    clarity gate, plan, execute, verify — without calling Claude, running the
+    executor, or editing a single file. The argv and prompts come from the same
+    builders the real steps use, so the preview cannot lie about what will run."""
+    banner("DRY RUN — printing commands only; no Claude calls, no edits, no spend")
+    missing = [
+        p
+        for p in ("triage.md", "plan.md", "execute.md", "verify.md")
+        if not os.path.exists(os.path.join(PROMPTS_DIR, p))
+    ]
+    if missing:
+        log(
+            "missing prompt files: "
+            + ", ".join(missing)
+            + " — run `python driver.py doctor`.",
+            prefix="✗",
+        )
+        sys.exit(1)
+
+    _preview_claude(
+        "CLARITY GATE",
+        model=CLARIFY_MODEL_NAME,
+        prompt=triage_instruction(),
+        system_prompt_file=os.path.join(PROMPTS_DIR, "triage.md"),
+        allowed_tools=["Read"],
+        bare=True,
+    )
+    _preview_claude(
+        "PLAN  (iteration 1 — no previous verdict)",
+        model=PLAN_CLAUDE_MODEL_NAME,
+        prompt=plan_instruction(None),
+        system_prompt_file=os.path.join(PROMPTS_DIR, "plan.md"),
+        allowed_tools=PLAN_ALLOWED_TOOLS,
+        skip_permissions=PLAN_SKIP_PERMISSIONS,
+    )
+    _preview_executor()
+
+    banner("TEST GATES  (run before VERIFY; their pass/fail is ground truth)")
+    gates = [c for c in TEST_COMMANDS if c.strip()]
+    if gates:
+        for cmd in gates:
+            log(f"$ {cmd}")
+        log("ALL must pass; the verifier sees the combined result.")
+    else:
+        log("none configured — the verifier judges on the diff alone.", prefix="!")
+
+    _preview_claude(
+        "VERIFY",
+        model=VERIFICATION_CLAUDE_MODEL_NAME,
+        prompt=verify_instruction(),
+        system_prompt_file=os.path.join(PROMPTS_DIR, "verify.md"),
+        allowed_tools=VERIFY_ALLOWED_TOOLS,
+        bare=True,
+    )
+
+    banner("DRY RUN — end (nothing was executed)")
+    log("run `python driver.py doctor` to confirm these CLIs are installed.")
+    sys.exit(0)
+
+
 def main():
-    parse_cli_overrides()
+    command = parse_cli_overrides()
     os.chdir(REPO_ROOT)
+
+    if command == "doctor":
+        doctor()  # prints the checklist and exits
+    if DRY_RUN:
+        dry_run()  # prints the planned commands and exits
     try:
         preflight()
     except StepError as e:  # includes FatalError (missing files, not a repo)
@@ -731,12 +985,26 @@ def main():
 
 def parse_cli_overrides():
     """Let the three model variables (and a couple of knobs) be set at launch
-    without editing the file."""
+    without editing the file. Returns the optional subcommand ('doctor' or None)."""
     global PLAN_CLAUDE_MODEL_NAME, IMPLEMENTATION_MODEL_NAME, EXECUTOR_BACKEND
     global VERIFICATION_CLAUDE_MODEL_NAME, MAX_ITERATIONS, TEST_COMMANDS, REPO_ROOT
-    global MAX_COST_USD
+    global MAX_COST_USD, DRY_RUN
     p = argparse.ArgumentParser(description="Agentic plan/execute/verify loop.")
     p.add_argument("--version", action="version", version=f"agentic-loop {__version__}")
+    p.add_argument(
+        "command",
+        nargs="?",
+        choices=["run", "doctor"],
+        default="run",
+        help="'run' (default) the loop, or 'doctor' to preflight the environment "
+        "(checks git + the claude/executor CLIs and their versions) without spending.",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the exact commands and prompts each step would issue, then "
+        "exit — no Claude calls, no executor, no edits, no spend.",
+    )
     p.add_argument("--plan-model", default=PLAN_CLAUDE_MODEL_NAME)
     p.add_argument(
         "--executor",
@@ -775,6 +1043,8 @@ def parse_cli_overrides():
     if a.test_command is not None:  # keep module-level TEST_COMMANDS if flag unused
         TEST_COMMANDS = a.test_command
     REPO_ROOT = a.repo
+    DRY_RUN = a.dry_run
+    return a.command
 
 
 if __name__ == "__main__":

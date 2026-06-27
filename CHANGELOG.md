@@ -26,6 +26,13 @@ Initial public release.
 - `--max-cost-usd`: hard cap on cumulative Claude spend (`0` = no limit).
 - `--test-command` is **repeatable** — gate on lint, build, and test separately;
   all must pass. The verifier sees the overall status plus a per-gate breakdown.
+- `doctor` subcommand: preflights the environment (git + the `claude`/executor CLIs,
+  printing each `--version`, the git repo, and the prompt files) and exits non-zero
+  with a checklist if anything is missing — no spend, no edits.
+- `--dry-run`: prints the exact command line and full prompt for every step (clarity
+  gate, plan, execute, test gates, verify), then exits without calling Claude, running
+  the executor, or editing anything. Shares the command/prompt builders with the real
+  run so the preview cannot drift.
 - `--version` flag and `__version__` in `driver.py`.
 - `install.sh` + `make install TARGET=../repo` to drop the tool into a target repo
   without clobbering your `AGENTS.md` or in-progress task.

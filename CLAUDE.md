@@ -19,6 +19,12 @@ python -m unittest discover -s tests -t . -v
 # Byte-compile (catches syntax/import errors):
 python -m py_compile driver.py executors.py
 
+# Preflight the environment (checks git + claude + executor CLIs; no spend):
+python driver.py doctor
+
+# Preview every step's command + prompt without calling anything (no spend/edits):
+python driver.py --dry-run
+
 # Run the loop (first run with no task.md scaffolds a template and exits):
 python driver.py \
   --plan-model opus \
@@ -83,6 +89,12 @@ content, never committed into this tool repo.
   mutates history without an explicit, off-by-default flag.
 - **Agents are stateless one-shots.** New features must keep state in the driver/on disk,
   not in any agent's memory.
+- **One source of truth for what gets run.** The real steps and the `--dry-run` preview
+  both build their commands from the same helpers — `build_claude_argv` and the
+  `*_instruction` builders (`plan_instruction`, `verify_instruction`, `triage_instruction`),
+  and each executor's adapter. Don't inline a command or prompt into a step; route it
+  through the builder so the preview can't lie. `doctor` likewise derives the executor's
+  binary from `executors.EXECUTORS[backend](...)[0]`, not a hardcoded name.
 
 ## Error/stop model
 

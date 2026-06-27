@@ -44,7 +44,7 @@ This is a template you drop into the repository you want to work on. Clone it
 once, then run the installer against your target repo:
 
 ```bash
-git clone https://github.com/<you>/agents-collab
+git clone https://github.com/srivaths-ahr/agents-collab
 ./agents-collab/install.sh /path/to/your-repo
 # or:  make -C agents-collab install TARGET=/path/to/your-repo
 ```
@@ -68,7 +68,13 @@ python driver.py
 #      cp task.md.example task.md
 #      cp context.md.example context.md
 
-# 3) run the loop with your chosen models/executor
+# 3) check your environment is ready (no spend, no edits)
+python driver.py doctor
+
+# 4) preview exactly what each step will run, still without spending a cent
+python driver.py --dry-run --executor codex --impl-model gpt-5.4
+
+# 5) run the loop with your chosen models/executor
 python driver.py \
   --plan-model opus \
   --executor codex --impl-model gpt-5.4 \
@@ -80,6 +86,21 @@ python driver.py \
 `--test-command` is repeatable: pass it once per gate (lint, build, test) and
 **all** must pass. `--max-cost-usd` stops the loop once cumulative Claude spend
 reaches the cap (`0` = no limit).
+
+### Before you spend: `doctor` and `--dry-run`
+
+Two zero-cost previews, so an unfamiliar tool with auto-approved edits never
+surprises you:
+
+- **`python driver.py doctor`** — checks that `git`, `claude`, and the chosen
+  executor CLI are installed (printing each one's `--version`), that you're in a
+  git repo, and that the prompt files are present. Exits non-zero with a checklist
+  if anything is missing — turning a mid-run "command not found" into a two-second
+  report. Worth running first, since the third-party executor CLIs drift.
+- **`python driver.py --dry-run`** — prints the exact command line and full prompt
+  for every step (clarity gate, plan, execute, the test gates, verify) and then
+  exits. No Claude calls, no executor, no edits, no spend. The argv and prompts
+  come from the same builders the real run uses, so the preview can't lie.
 
 Changes are **staged but never committed** — run on a dedicated branch or git
 worktree, then review and commit (or discard) yourself.
@@ -97,7 +118,11 @@ Set defaults at the top of `driver.py`, or override per run:
 | `--test-command`   | deterministic gate; pass/fail is ground truth. Repeatable — all gates must pass |
 | `--max-iterations` | hard cap on loop rounds                                                         |
 | `--max-cost-usd`   | hard cap on cumulative Claude spend in USD (0 = no limit)                       |
+| `--dry-run`        | print each step's command + prompt and exit; no calls, edits, or spend          |
 | `--repo`           | path to the target git repo (default: current dir)                              |
+
+The `doctor` subcommand (`python driver.py doctor`) takes the same `--executor` /
+`--repo` flags, so it checks the exact CLIs the run you're about to launch needs.
 
 ## Executors
 
