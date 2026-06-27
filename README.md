@@ -38,15 +38,21 @@ credentials are stored in this repo.**
 
 ## Install
 
-This is a template you drop into the repository you want to work on:
+This is a template you drop into the repository you want to work on. Clone it
+once, then run the installer against your target repo:
 
 ```bash
-# from the root of YOUR target repo:
-git clone https://github.com/<you>/agents-collab /tmp/agents-collab
-cp -r /tmp/agents-collab/{driver.py,executors.py,prompts,AGENTS.md} .
+git clone https://github.com/<you>/agents-collab
+./agents-collab/install.sh /path/to/your-repo
+# or:  make -C agents-collab install TARGET=/path/to/your-repo
 ```
 
-Run it from inside that repo (the prompt files are read by relative path).
+The installer copies the tool files (`driver.py`, `executors.py`, `prompts/`) and
+seeds `AGENTS.md` + the `*.example` files **only if absent** — re-run it to upgrade
+without clobbering your standing rules or an in-progress task. Prefer to do it by
+hand? Copy `{driver.py,executors.py,prompts,AGENTS.md}` into the repo yourself.
+
+Run the loop from inside that repo (the prompt files are read by relative path).
 
 ## Quickstart
 
@@ -80,16 +86,16 @@ worktree, then review and commit (or discard) yourself.
 
 Set defaults at the top of `driver.py`, or override per run:
 
-| Flag               | Meaning                                                  |
-| ------------------ | -------------------------------------------------------- |
-| `--plan-model`     | Claude model for planning (e.g. `opus`)                  |
-| `--executor`       | `cursor` · `claude` · `codex` · `gemini` · `antigravity` |
-| `--impl-model`     | executor model slug for the chosen backend               |
-| `--verify-model`   | Claude model for verification (e.g. `haiku`)             |
+| Flag               | Meaning                                                                         |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `--plan-model`     | Claude model for planning (e.g. `opus`)                                         |
+| `--executor`       | `cursor` · `claude` · `codex` · `gemini` · `antigravity`                        |
+| `--impl-model`     | executor model slug for the chosen backend                                      |
+| `--verify-model`   | Claude model for verification (e.g. `haiku`)                                    |
 | `--test-command`   | deterministic gate; pass/fail is ground truth. Repeatable — all gates must pass |
-| `--max-iterations` | hard cap on loop rounds                                  |
-| `--max-cost-usd`   | hard cap on cumulative Claude spend in USD (0 = no limit) |
-| `--repo`           | path to the target git repo (default: current dir)       |
+| `--max-iterations` | hard cap on loop rounds                                                         |
+| `--max-cost-usd`   | hard cap on cumulative Claude spend in USD (0 = no limit)                       |
+| `--repo`           | path to the target git repo (default: current dir)                              |
 
 ## Executors
 
@@ -118,6 +124,52 @@ Set defaults at the top of `driver.py`, or override per run:
 - **Non-destructive** — the driver stages to compute diffs but never commits,
   resets, or deletes.
 
+## How this compares
+
+Plenty of tools write code autonomously. This one is deliberately narrow, and the
+combination is the point:
+
+- **Swappable executor, fixed judges.** The mechanical editing runs on whatever
+  CLI you like (Cursor, Codex, Gemini, or Claude itself); planning and
+  verification always run on Claude. Most agents bind you to one model end-to-end.
+- **Claude-as-judge against machine-checkable criteria.** A separate verifier
+  decides "done" from the diff + your test gate and writes a structured
+  `verdict.json` — the loop converges on criteria, not on the model declaring
+  itself finished.
+- **A file-based, auditable contract.** Every handoff is a file on disk
+  (`task.md`, `plan.md`, the diff, `verdict.json`). You can read, diff, and replay
+  every step. Nothing hides in an agent's memory.
+- **Standard library only, non-destructive.** One ~700-line Python file, zero pip
+  installs, and it never commits or resets your repo.
+
+Versus the usual suspects: **Aider** is an excellent interactive pair-programmer
+but human-in-the-loop by design; **OpenHands / SWE-agent** are heavier autonomous
+frameworks with their own runtimes and dependencies; **Cursor's background agents**
+are powerful but closed and Cursor-bound. If you want a small, inspectable harness
+that separates a cheap editor from an expensive judge and leaves a paper trail,
+this is that. If you want a full agent platform, use one of those instead.
+
+## Limitations
+
+Be clear-eyed about what this does and doesn't give you:
+
+- **The verifier is only as good as your criteria.** With soft acceptance criteria
+  and no `--test-command`, the verifier judges the diff on vibes and can be wrong
+  or talked past. Give it concrete, checkable criteria and a real test gate — that
+  is where the guarantees come from.
+- **Executor backends drift.** They wrap fast-moving third-party CLIs; flags change
+  (the Gemini → Antigravity churn is in this repo's history). Expect occasional
+  adapter fixes — see `CHANGELOG.md` and the "executor flags changed" issue
+  template.
+- **One task per run.** There is no task queue or parallelism, on purpose. State is
+  one `task.md`; orchestration of many tasks is out of scope.
+- **It does not sandbox the executor.** Edits are auto-applied and shell-capable
+  backends can run commands; confinement is the backend CLI's job, not the
+  driver's. See [SECURITY.md](SECURITY.md).
+- **Judgment costs money.** Planning and verifying every iteration on Claude is the
+  spend; `--max-iterations` and `--max-cost-usd` bound it, but a hard task that
+  never converges will burn the budget before stopping.
+
 ## Files
 
 ```
@@ -129,10 +181,12 @@ prompts/
   execute.md         instruction handed to the executor
   verify.md          verifier contract + verdict.json schema
 AGENTS.md            standing rules auto-loaded by Cursor / Codex executors
+install.sh · Makefile   drop the tool into a target repo
 verdict.sample.json  example verifier output
 task.md.example      filled-in sample task (copy to task.md)
 context.md.example   sample codebase map (copy to context.md)
-README.md · CONTRIBUTING.md · SECURITY.md · LICENSE · .gitignore
+.github/             issue + PR templates
+README.md · CONTRIBUTING.md · SECURITY.md · CHANGELOG.md · LICENSE · .gitignore
 ```
 
 ## Safety
@@ -145,4 +199,4 @@ and how to report a vulnerability.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Update the copyright holder before publishing.
+MIT — see [LICENSE](LICENSE).

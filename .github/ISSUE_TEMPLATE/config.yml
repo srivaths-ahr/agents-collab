@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/SrivathsAripirala/agents-collab/security/advisories/new
+    about: Please report vulnerabilities privately — see SECURITY.md, not a public issue.
+  - name: Scope / new-feature discussion
+    url: https://github.com/SrivathsAripirala/agents-collab/blob/main/CONTRIBUTING.md
+    about: This tool is deliberately small. Read CONTRIBUTING.md before proposing features that grow its scope.
