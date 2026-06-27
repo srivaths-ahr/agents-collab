@@ -6,9 +6,9 @@
 ## Trust model — read before running
 
 - **The executor can edit any file in the working tree.** It runs headless with
-  approvals disabled (`cursor-agent --force`, `claude --permission-mode acceptEdits`, `codex exec --ask-for-approval never`, `gemini --yolo`,
-  `agy --approve all`). Assume it can rewrite anything in the repo.
-- **Several backends can also run shell commands.** `codex` (`--sandbox workspace-write`), `gemini` (`--yolo`), and `antigravity` execute commands, not
+  approvals disabled (`cursor-agent --force`, `claude --permission-mode acceptEdits`, `codex exec --sandbox workspace-write`,
+  `agy --dangerously-skip-permissions`). Assume it can rewrite anything in the repo.
+- **Several backends can also run shell commands.** `codex` (`--sandbox workspace-write`) and `antigravity` execute commands, not
   just edits. A sandbox confines them to the workspace _only if it holds_ — do not
   rely on it as your sole boundary.
 - **Your inputs become prompts to these tools.** `task.md`, `context.md`, and any

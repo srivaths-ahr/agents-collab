@@ -72,43 +72,21 @@ def _codex(model, prompt):
     return argv
 
 
-def _gemini(model, prompt):
-    """Legacy Gemini CLI (`gemini`).
-
-    IMPORTANT: Google retired the free/Pro/Ultra Gemini CLI on 2026-06-18 and
-    replaced it with Antigravity CLI (`agy`). This adapter targets the legacy
-    `gemini` binary, which still works if you have a paid GEMINI_API_KEY.
-    If you have migrated, use EXECUTOR_BACKEND="antigravity" instead.
-
-    -p = headless; --yolo auto-approves all tool actions (file edits + shell)
-    and turns on its sandbox by default; -m selects the model.
-    Auto-reads GEMINI.md (note: different context filename from AGENTS.md)."""
-    return [
-        "gemini",
-        "-p",
-        prompt,
-        "-m",
-        model,
-        "--yolo",
-        "--output-format",
-        "json",
-    ]
-
-
 def _antigravity(model, prompt):
-    """Antigravity CLI (`agy`) — Gemini CLI's replacement as of 2026-06-18.
+    """Antigravity CLI (`agy`) — Google's headless agent CLI.
 
-    Different surface from `gemini`, and changing fast — VERIFY against current
-    `agy --help` before scripting. Flags as of agy 1.0.13:
+    Changing fast — VERIFY against current `agy --help` before scripting. Flags as
+    of agy 1.0.13:
       * `--print <prompt>` is the headless one-shot mode (the prompt is the FLAG'S
         VALUE, not a positional — the old `--headless`/`--approve` flags were
         removed and now error).
       * `--dangerously-skip-permissions` auto-approves tool actions (file edits),
         replacing the old `--approve all`.
       * the model is auto-selected; no model flag is passed here.
-    NOTE: headless `agy` still requires its folder/project to be set up and trusted
-    for non-interactive use — otherwise `--print` can hang waiting on first-run
-    setup. Approve the folder in `agy` interactively once before an unattended run.
+    NOTE: `agy --print` blocks reading stdin and will hang (no output) if stdin is
+    left open — the driver's run() closes the child's stdin (DEVNULL) so it gets
+    EOF and runs headless. Verified end-to-end against agy 1.0.13. (agy may also
+    want its folder trusted before it will apply edits.)
     """
     return ["agy", "--dangerously-skip-permissions", "--print", prompt]
 
@@ -118,7 +96,6 @@ EXECUTORS = {
     "cursor": _cursor,
     "claude": _claude,
     "codex": _codex,
-    "gemini": _gemini,
     "antigravity": _antigravity,
 }
 

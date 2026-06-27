@@ -1,6 +1,6 @@
 ---
 name: Executor flags changed / broke
-about: A backend CLI (cursor, claude, codex, gemini, antigravity) changed its flags or behavior and the adapter no longer works
+about: A backend CLI (cursor, claude, codex, antigravity) changed its flags or behavior and the adapter no longer works
 title: "[executor] <backend>: "
 labels: executor-drift
 ---
@@ -12,7 +12,7 @@ Please separate this from loop-logic bugs — use the Bug report template for th
 -->
 
 **Backend**
-<!-- cursor | claude | codex | gemini | antigravity -->
+<!-- cursor | claude | codex | antigravity -->
 
 **CLI version**
 <!-- output of e.g. `cursor-agent --version`, `codex --version`, `agy --version` -->

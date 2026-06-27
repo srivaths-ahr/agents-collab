@@ -8,8 +8,7 @@ Sequences stateless one-shot agents around a shared git workspace:
     PLAN     (Claude)   reads task.md + context.md (+ codegraph) + last verdict
                         -> writes plan.md
     EXECUTE  (executor) reads plan.md (+ AGENTS.md) -> edits files
-                        (pluggable: cursor | claude
-                        | codex | gemini | antigravity)
+                        (pluggable: cursor | claude | codex | antigravity)
     VERIFY   (Claude)   reads the git diff + test output + task.md criteria
                         -> writes verdict.json
 
@@ -54,10 +53,9 @@ VERIFICATION_CLAUDE_MODEL_NAME = "haiku"  # verification: cheap, bounded
 
 # ---- EXECUTOR (pluggable — plan & verify stay on Claude, only this swaps) ---
 # One of executors.EXECUTORS:
-#   "cursor" | "claude" | "codex" | "gemini" | "antigravity"
+#   "cursor" | "claude" | "codex" | "antigravity"
 #   EXECUTOR_BACKEND="claude" -> Claude plans, Claude executes, Claude verifies
 #   EXECUTOR_BACKEND="codex"  -> Claude plans, Codex  executes, Claude verifies
-#   EXECUTOR_BACKEND="gemini" -> Claude plans, Gemini executes, Claude verifies
 EXECUTOR_BACKEND = "cursor"
 IMPLEMENTATION_MODEL_NAME = "composer-2.5"  # executor model slug FOR THE CHOSEN BACKEND
 
@@ -180,16 +178,19 @@ def strip_fences(text):
 
 def run(cmd, *, timeout, cwd=REPO_ROOT, stdin=None):
     """Thin subprocess wrapper. Returns (returncode, stdout, stderr).
-    Raises StepError on timeout so the loop can stop cleanly."""
+    Raises StepError on timeout so the loop can stop cleanly.
+
+    When no input is provided we close the child's stdin (DEVNULL) rather than
+    letting it inherit ours. Headless agent CLIs that probe stdin otherwise block
+    forever waiting on input that never comes (e.g. `agy --print` hangs with no
+    output until its timeout). Closing stdin gives them an immediate EOF."""
+    kwargs = dict(cwd=cwd, timeout=timeout, capture_output=True, text=True)
+    if stdin is None:
+        kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        kwargs["input"] = stdin
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=cwd,
-            input=stdin,
-            timeout=timeout,
-            capture_output=True,
-            text=True,
-        )
+        proc = subprocess.run(cmd, **kwargs)
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
         raise StepError(f"command timed out after {timeout}s: {cmd[0]} ...")
@@ -225,7 +226,12 @@ def run_claude(
 
 
 def build_claude_argv(
-    prompt, *, model, system_prompt_file, allowed_tools, bare=False,
+    prompt,
+    *,
+    model,
+    system_prompt_file,
+    allowed_tools,
+    bare=False,
     skip_permissions=False,
 ):
     """Assemble the exact `claude` argv for a headless one-shot. Pure except for
@@ -749,7 +755,11 @@ def doctor():
         (
             not missing,
             "prompt files: "
-            + ("all present in prompts/" if not missing else "MISSING " + ", ".join(missing)),
+            + (
+                "all present in prompts/"
+                if not missing
+                else "MISSING " + ", ".join(missing)
+            ),
         )
     )
 
@@ -757,7 +767,10 @@ def doctor():
         log(msg, prefix="✓" if ok else "✗")
 
     # Informational only (not gating): task/context are user-provided or scaffolded.
-    for path, note in ((TASK_FILE, "the task to run"), (CONTEXT_FILE, "architecture map")):
+    for path, note in (
+        (TASK_FILE, "the task to run"),
+        (CONTEXT_FILE, "architecture map"),
+    ):
         here = os.path.exists(path)
         log(
             f"{path} ({note}): {'present' if here else 'missing — create before a run'}",
@@ -790,8 +803,16 @@ def _render_argv(argv, subs):
     return " ".join(parts)
 
 
-def _preview_claude(title, *, model, prompt, system_prompt_file, allowed_tools,
-                    bare=False, skip_permissions=False):
+def _preview_claude(
+    title,
+    *,
+    model,
+    prompt,
+    system_prompt_file,
+    allowed_tools,
+    bare=False,
+    skip_permissions=False,
+):
     banner(f"{title}  (claude, model={model})")
     sys_content = read_file(system_prompt_file)
     argv = build_claude_argv(

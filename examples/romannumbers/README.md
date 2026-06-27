@@ -52,6 +52,22 @@ account. The change `cursor` produced:
 The verifier didn't take this on faith — `run/verdict.json` cites, per criterion,
 the exact lines and the test output that satisfy it.
 
+## Same task, every executor
+
+The execute step is swappable — planning and verification stay on Claude. This one
+task was run end-to-end on each backend reachable at the time:
+
+| Executor | Model | Result |
+| --- | --- | --- |
+| `cursor` | `composer-2.5` | ✅ PASS — the run captured in [`run/`](run/) |
+| `claude` | `haiku` | ✅ PASS |
+| `antigravity` (`agy`) | auto-selected | ✅ PASS (after the driver's stdin fix) |
+| `codex` | codex default | adapter fixed; run blocked by an account usage limit |
+
+All of them produced essentially the same greedy value/symbol implementation —
+which is the point: a cheap editor does the typing, and the same Claude verifier
+judges the result the same way regardless of who wrote it.
+
 ## Run it yourself
 
 From a copy of this folder (the loop edits files and needs an isolated git repo, so

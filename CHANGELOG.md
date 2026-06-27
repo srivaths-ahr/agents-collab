@@ -23,11 +23,20 @@ when an executor stops behaving.
     0.142.x) and made `--model` optional (`default`/`auto` uses your codex config
     default). `codex exec` now also requires a git repo trusted by codex.
   - `antigravity` (`agy`) adapter: `--headless --approve all` → `--print <prompt>`
-    + `--dangerously-skip-permissions` (agy 1.0.13). Headless still needs the folder
-    trusted/set up for non-interactive use.
+    + `--dangerously-skip-permissions` (agy 1.0.13).
+- **Driver closes the executor's stdin (DEVNULL).** `agy --print` (and likely other
+  headless CLIs) blocks reading stdin and hangs with no output until its timeout
+  when stdin is left open; closing it gives an immediate EOF. With this, `agy` ran
+  the example end-to-end to a verified PASS.
 - **Driver no longer passes claude's `--bare`** for the clarify/verify steps. On
   some setups `--bare` ("minimal mode") skips plugin/hook-provided login, so those
   steps returned "Not logged in" while plan (no `--bare`) worked.
+
+### Removed
+
+- **The `gemini` executor backend.** Google retired the free/Pro/Ultra Gemini CLI
+  in favor of Antigravity (`agy`); use `--executor antigravity` instead. Removed the
+  adapter, its test, and the `GEMINI.md` convention. (Antigravity replaces it.)
 
 ## [0.1.0] — 2026-06-27
 

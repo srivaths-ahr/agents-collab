@@ -112,6 +112,6 @@ no I/O, no side effects) that runs the CLI **headless with edits auto-applied an
 interactive prompts**, reads `plan.md`, and exits non-zero on failure. Register it in
 `EXECUTORS`; if its stdout is a JSON envelope with a cost field, add it to
 `JSON_ENVELOPE_BACKENDS`. Then document it in the README's Executors table. Note that
-`AGENTS.md` is shared by the Cursor and Codex backends as their auto-loaded context file —
-Gemini uses `GEMINI.md` instead. Third-party CLI flags change fast; verify against current
-docs before a long unattended run.
+`AGENTS.md` is the auto-loaded context file for the Cursor and Codex backends.
+Third-party CLI flags change fast; verify against current docs before a long
+unattended run.

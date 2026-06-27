@@ -16,7 +16,7 @@ VERIFY   (Claude)    git diff + test output + acceptance criteria  →  verdict.
    └── driver reads verdict: pass → stop · fail → re-plan · blocked → human
 ```
 
-The executor is swappable: **Cursor, Claude itself, OpenAI Codex, or Gemini /
+The executor is swappable: **Cursor, Claude itself, OpenAI Codex, or
 Antigravity**. Planning and verification always run on Claude.
 
 **See it actually run:** [`examples/romannumbers`](examples/romannumbers) is a real
@@ -37,7 +37,7 @@ loop converges against objective, machine-checkable acceptance criteria.
 - **git** — the workspace is the handoff and verification substrate.
 - **Claude Code** (`claude`) — used for clarify, plan, and verify.
 - **One executor CLI**, matching your chosen backend:
-  `cursor-agent` · `claude` · `codex` · `gemini` · `agy` (Antigravity).
+  `cursor-agent` · `claude` · `codex` · `agy` (Antigravity).
 - **macOS or Linux.** The driver is portable Python, but `install.sh` is a bash
   script (`set -euo pipefail`) and the test gate runs via `bash -lc`. On **Windows,
   use WSL**, or copy the four files in by hand and run `python driver.py` directly.
@@ -122,7 +122,7 @@ Set defaults at the top of `driver.py`, or override per run:
 | Flag               | Meaning                                                                         |
 | ------------------ | ------------------------------------------------------------------------------- |
 | `--plan-model`     | Claude model for planning (e.g. `opus`)                                         |
-| `--executor`       | `cursor` · `claude` · `codex` · `gemini` · `antigravity`                        |
+| `--executor`       | `cursor` · `claude` · `codex` · `antigravity`                                   |
 | `--impl-model`     | executor model slug for the chosen backend                                      |
 | `--verify-model`   | Claude model for verification (e.g. `haiku`)                                    |
 | `--test-command`   | deterministic gate; pass/fail is ground truth. Repeatable — all gates must pass |
@@ -141,12 +141,7 @@ The `doctor` subcommand (`python driver.py doctor`) takes the same `--executor` 
 | `cursor`      | `cursor-agent -p --force`                 | `AGENTS.md`               | default                                                                   |
 | `claude`      | `claude -p --permission-mode acceptEdits` | `CLAUDE.md` / `AGENTS.md` | all-Claude pairing                                                        |
 | `codex`       | `codex exec --sandbox workspace-write`    | `AGENTS.md`               | shares AGENTS.md with Cursor                                              |
-| `gemini`      | `gemini -p --yolo`                        | `GEMINI.md`               | **legacy CLI; needs a paid key**                                          |
-| `antigravity` | `agy --print --dangerously-skip-permissions` | —                      | Gemini CLI's replacement; flags change fast — verify against current docs |
-
-> Google retired the free/Pro/Ultra Gemini CLI in June 2026 in favor of
-> Antigravity (`agy`). Use `gemini` only if your legacy CLI is still active on a
-> paid key; otherwise use `antigravity` and confirm its current flags first.
+| `antigravity` | `agy --print --dangerously-skip-permissions` | —                      | Google's headless agent CLI; flags change fast — verify against current docs |
 
 ### Compatibility matrix
 
@@ -161,13 +156,13 @@ installed on your machine, and please PR an update here when you verify a backen
 | `cursor`      | `cursor-agent` | `2026.06.26-7079533`  | 2026-06-27  | `composer-2.5`          |
 | `claude`      | `claude`       | `2.1.195`             | 2026-06-27  | `opus`, `haiku`         |
 | `codex`       | `codex`        | `0.142.3` (adapter)   | 2026-06-27  | codex default; or `gpt-5.x` |
-| `gemini`      | `gemini`       | _not yet pinned_      | —           | (legacy; paid key)      |
-| `antigravity` | `agy`          | `1.0.13` (adapter)    | 2026-06-27  | (auto-selected)         |
+| `antigravity` | `agy`          | `1.0.13`              | 2026-06-27  | (auto-selected)         |
 
-> "(adapter)" = the adapter's flags were corrected for that CLI version, but a full
-> end-to-end run wasn't completed: `codex` hit an account usage limit and `agy`'s
-> headless mode needs per-folder trust/project setup. `cursor` ran a full task to a
-> verified PASS — see [`examples/romannumbers`](examples/romannumbers).
+> `cursor`, `claude`, and `antigravity` each ran the example task end-to-end to a
+> verified PASS. "(adapter)" on `codex` means its flags were corrected for that
+> version but the run hit an account usage limit before finishing. `agy` needed a
+> driver fix — it blocks on stdin in `--print` mode, so the driver now closes the
+> executor's stdin. See [`examples/romannumbers`](examples/romannumbers).
 
 > `claude` is also the engine for the plan / verify / clarify steps, so its
 > verified version above applies to those regardless of which executor you pick.
@@ -188,7 +183,7 @@ installed on your machine, and please PR an update here when you verify a backen
 ## What it costs
 
 Two separate bills: **Claude** (plan + verify + clarify) and, if you use a
-non-Claude executor, **that CLI's own account** (Cursor, Codex, Gemini) on its own
+non-Claude executor, **that CLI's own account** (Cursor, Codex, Antigravity) on its own
 plan. The driver only meters and caps the Claude side.
 
 Where the Claude spend goes, per loop:
@@ -217,7 +212,7 @@ Plenty of tools write code autonomously. This one is deliberately narrow, and th
 combination is the point:
 
 - **Swappable executor, fixed judges.** The mechanical editing runs on whatever
-  CLI you like (Cursor, Codex, Gemini, or Claude itself); planning and
+  CLI you like (Cursor, Codex, Antigravity, or Claude itself); planning and
   verification always run on Claude. Most agents bind you to one model end-to-end.
 - **Claude-as-judge against machine-checkable criteria.** A separate verifier
   decides "done" from the diff + your test gate and writes a structured
@@ -245,9 +240,9 @@ Be clear-eyed about what this does and doesn't give you:
   or talked past. Give it concrete, checkable criteria and a real test gate — that
   is where the guarantees come from.
 - **Executor backends drift.** They wrap fast-moving third-party CLIs; flags change
-  (the Gemini → Antigravity churn is in this repo's history). Expect occasional
-  adapter fixes — see `CHANGELOG.md` and the "executor flags changed" issue
-  template.
+  (the `codex` and `agy` adapter fixes in this repo's history are real examples).
+  Expect occasional fixes — see `CHANGELOG.md` and the "executor flags changed"
+  issue template.
 - **One task per run.** There is no task queue or parallelism, on purpose. State is
   one `task.md`; orchestration of many tasks is out of scope.
 - **It does not sandbox the executor.** Edits are auto-applied and shell-capable
