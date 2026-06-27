@@ -30,7 +30,9 @@ class TestBuildClaudeArgv(unittest.TestCase):
 
     def test_allowed_tools_joined_with_commas(self):
         argv = driver.build_claude_argv(
-            "P", model="m", system_prompt_file=None,
+            "P",
+            model="m",
+            system_prompt_file=None,
             allowed_tools=["Read", "Grep", "Glob"],
         )
         i = argv.index("--allowedTools")
@@ -40,8 +42,11 @@ class TestBuildClaudeArgv(unittest.TestCase):
         # skip_permissions and allowedTools are mutually exclusive (elif): when
         # skipping, no --allowedTools should appear.
         argv = driver.build_claude_argv(
-            "P", model="m", system_prompt_file=None,
-            allowed_tools=["Read"], skip_permissions=True,
+            "P",
+            model="m",
+            system_prompt_file=None,
+            allowed_tools=["Read"],
+            skip_permissions=True,
         )
         self.assertIn("--dangerously-skip-permissions", argv)
         self.assertNotIn("--allowedTools", argv)
@@ -49,9 +54,7 @@ class TestBuildClaudeArgv(unittest.TestCase):
     def test_system_prompt_file_contents_are_appended(self):
         # Write a temp prompt file and confirm its CONTENTS (not its path) follow
         # --append-system-prompt.
-        path = os.path.join(
-            os.path.dirname(__file__), "_tmp_sys_prompt.txt"
-        )
+        path = os.path.join(os.path.dirname(__file__), "_tmp_sys_prompt.txt")
         with open(path, "w", encoding="utf-8") as f:
             f.write("SYSTEM-PROMPT-BODY")
         try:

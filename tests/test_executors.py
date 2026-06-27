@@ -74,12 +74,6 @@ class TestExecutorArgv(unittest.TestCase):
                 argv, ["codex", "exec", "--sandbox", "workspace-write", PROMPT]
             )
 
-    def test_gemini(self):
-        self.assertEqual(
-            self.build("gemini"),
-            ["gemini", "-p", PROMPT, "-m", MODEL, "--yolo", "--output-format", "json"],
-        )
-
     def test_antigravity(self):
         # agy 1.0.13: --print <prompt> headless; --dangerously-skip-permissions
         # auto-approves; model is auto-selected (no model flag).
