@@ -72,11 +72,10 @@ Run the loop from inside that repo (the prompt files are read by relative path).
 # 1) first run scaffolds a task template, then stops
 python driver.py
 
-# 2) fill in task.md (goal + checkable acceptance criteria),
-#    and add a context.md describing your codebase.
-#    Starting points are provided:
-#      cp task.md.example task.md
-#      cp context.md.example context.md
+# 2) create BOTH input files — the run aborts without them.
+#    task.md is auto-scaffolded above; context.md is NOT — you must add it.
+#      cp task.md.example task.md        # then fill in goal + checkable acceptance criteria
+#      cp context.md.example context.md  # then describe your codebase (required, not optional)
 
 # 3) check your environment is ready (no spend, no edits)
 python driver.py doctor
@@ -106,7 +105,10 @@ surprises you:
   executor CLI are installed (printing each one's `--version`), that you're in a
   git repo, and that the prompt files are present. Exits non-zero with a checklist
   if anything is missing — turning a mid-run "command not found" into a two-second
-  report. Worth running first, since the third-party executor CLIs drift.
+  report. Worth running first, since the third-party executor CLIs drift. It
+  *reports* whether `task.md` and `context.md` are present but does **not** fail if
+  they are missing — both are required for a run, so create them regardless of what
+  `doctor` says (the run itself aborts if `context.md` is absent).
 - **`python driver.py --dry-run`** — prints the exact command line and full prompt
   for every step (clarity gate, plan, execute, the test gates, verify) and then
   exits. No Claude calls, no executor, no edits, no spend. The argv and prompts
@@ -142,6 +144,12 @@ The `doctor` subcommand (`python driver.py doctor`) takes the same `--executor` 
 | `claude`      | `claude -p --permission-mode acceptEdits` | `CLAUDE.md` / `AGENTS.md` | all-Claude pairing                                                        |
 | `codex`       | `codex exec --sandbox workspace-write`    | `AGENTS.md`               | shares AGENTS.md with Cursor                                              |
 | `antigravity` | `agy --print --dangerously-skip-permissions` | —                      | Google's headless agent CLI; flags change fast — verify against current docs |
+
+> **codex on ChatGPT auth:** use `--impl-model default` (codex then picks the model
+> from `~/.codex/config.toml`). A ChatGPT-plan account rejects explicitly-named models
+> — `--impl-model gpt-5.4`, `composer-2.5`, etc. fail with *"model is not supported when
+> using Codex with a ChatGPT account"*. `default`/`auto` sidesteps it. Only name a model
+> explicitly when codex is authenticated with an API key.
 
 ### Compatibility matrix
 
