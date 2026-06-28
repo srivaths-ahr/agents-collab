@@ -10,6 +10,8 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-28
+
 ### Added
 
 - **Interactive prompts for the run knobs.** Omit `--executor`, `--impl-model`,
@@ -29,6 +31,9 @@ when an executor stops behaving.
 
 ### Fixed
 
+- **Interactive prompts exit cleanly on Ctrl-C / EOF.** A `KeyboardInterrupt` or
+  `EOFError` at the run-settings chooser or the clarify gate now prints a short
+  message and exits (130 / 1) instead of dumping a Python traceback.
 - **Executor flag drift, found by running the example against live CLIs:**
   - `codex` adapter: dropped `--ask-for-approval never` (removed in codex-cli
     0.142.x) and made `--model` optional (`default`/`auto` uses your codex config

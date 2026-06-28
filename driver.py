@@ -41,7 +41,7 @@ import time
 
 import executors  # executor adapter registry (the pluggable EXECUTE step)
 
-__version__ = "0.1.0"  # bump in CHANGELOG.md too; executor adapters drift over time
+__version__ = "0.2.0"  # bump in CHANGELOG.md too; executor adapters drift over time
 
 # ============================================================================
 # CONFIG — fill these before a run (all overridable via CLI flags below)
@@ -1217,4 +1217,13 @@ def parse_cli_overrides():
 
 
 if __name__ == "__main__":
-    main()
+    # Exit cleanly (no traceback) when a prompt — the run-settings chooser or the
+    # clarify gate — is interrupted with Ctrl-C, or hits EOF (Ctrl-D / closed stdin).
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\ninterrupted — exiting.", file=sys.stderr)
+        sys.exit(130)
+    except EOFError:
+        print("\nno input received (EOF) — exiting.", file=sys.stderr)
+        sys.exit(1)

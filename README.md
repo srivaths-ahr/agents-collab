@@ -296,6 +296,29 @@ Be clear-eyed about what this does and doesn't give you:
   spend; `--max-iterations` and `--max-cost-usd` bound it, but a hard task that
   never converges will burn the budget before stopping.
 
+### What we're watching (v0.2.0 — early access)
+
+This is a young tool, shipped to learn from real use before adding more. The areas most
+likely to surprise you — and the ones we'd most like reports on:
+
+- **Cumulative diffs in the multi-unit loop.** Without a commit between dependent units,
+  unit K's verify step sees units 1..K in its diff. It judged correctly in our testing,
+  but a strict "only touches file X" criterion could mis-flag an earlier unit's change.
+  If you hit this, commit at each checkpoint for crisp per-unit diffs — and tell us.
+- **Per-unit `verdict.json` is overwritten.** A loop leaves only the *last* unit's
+  `verdict.json` at the repo root; copy it aside per unit (the loop above shows `cp`).
+  We're watching whether per-unit verdict isolation should be built in.
+- **Interactive run-knob prompts are new.** They're TTY-gated and skipped when the flags
+  are passed, so scripts and CI shouldn't see them — but if a prompt fires when you
+  didn't expect it, or blocks something, that's a report we want.
+- **Third-party executor CLIs drift.** We pin the version each adapter was verified
+  against (see the compatibility matrix); a newer CLI may have moved flags. `doctor`
+  prints your installed versions.
+
+Found a rough edge? Open an issue — `bug_report.md`, or `executor_flags_changed.md` for
+adapter drift. We're deliberately holding new features for ~a week to act on real
+feedback first.
+
 ## Troubleshooting
 
 Two things to reach for first: run **`python driver.py doctor`** (catches missing
