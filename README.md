@@ -155,14 +155,13 @@ installed on your machine, and please PR an update here when you verify a backen
 | ------------- | -------------- | --------------------- | ----------- | ----------------------- |
 | `cursor`      | `cursor-agent` | `2026.06.26-7079533`  | 2026-06-27  | `composer-2.5`          |
 | `claude`      | `claude`       | `2.1.195`             | 2026-06-27  | `opus`, `haiku`         |
-| `codex`       | `codex`        | `0.142.3` (adapter)   | 2026-06-27  | codex default; or `gpt-5.x` |
+| `codex`       | `codex`        | `0.142.3` (adapter)   | 2026-06-28  | codex default; or `gpt-5.x` |
 | `antigravity` | `agy`          | `1.0.13`              | 2026-06-27  | (auto-selected)         |
 
-> `cursor`, `claude`, and `antigravity` each ran the example task end-to-end to a
-> verified PASS. "(adapter)" on `codex` means its flags were corrected for that
-> version but the run hit an account usage limit before finishing. `agy` needed a
-> driver fix — it blocks on stdin in `--print` mode, so the driver now closes the
-> executor's stdin. See [`examples/romannumbers`](examples/romannumbers).
+> All four executors (`cursor`, `claude`, `codex`, and `antigravity`) ran the
+> example task end-to-end to a verified PASS. `agy` needed a driver fix — it
+> blocks on stdin in `--print` mode, so the driver now closes the executor's
+> stdin. See [`examples/romannumbers`](examples/romannumbers).
 
 > `claude` is also the engine for the plan / verify / clarify steps, so its
 > verified version above applies to those regardless of which executor you pick.

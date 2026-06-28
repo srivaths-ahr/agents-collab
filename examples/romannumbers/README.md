@@ -62,7 +62,7 @@ task was run end-to-end on each backend reachable at the time:
 | `cursor` | `composer-2.5` | ✅ PASS — the run captured in [`run/`](run/) |
 | `claude` | `haiku` | ✅ PASS |
 | `antigravity` (`agy`) | auto-selected | ✅ PASS (after the driver's stdin fix) |
-| `codex` | codex default | adapter fixed; run blocked by an account usage limit |
+| `codex` | auto-selected (gpt-5.5) | ✅ PASS |
 
 All of them produced essentially the same greedy value/symbol implementation —
 which is the point: a cheap editor does the typing, and the same Claude verifier
