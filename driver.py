@@ -1009,6 +1009,7 @@ def parse_cli_overrides():
     global PLAN_CLAUDE_MODEL_NAME, IMPLEMENTATION_MODEL_NAME, EXECUTOR_BACKEND
     global VERIFICATION_CLAUDE_MODEL_NAME, MAX_ITERATIONS, TEST_COMMANDS, REPO_ROOT
     global MAX_COST_USD, DRY_RUN
+    global TASK_FILE, CONTEXT_FILE, WORK_DIR
     p = argparse.ArgumentParser(description="Agentic plan/execute/verify loop.")
     p.add_argument("--version", action="version", version=f"agentic-loop {__version__}")
     p.add_argument(
@@ -1053,6 +1054,23 @@ def parse_cli_overrides():
         "ALL must pass. Omit to judge on the diff alone.",
     )
     p.add_argument("--repo", default=REPO_ROOT, help="path to the target git repo")
+    p.add_argument(
+        "--task",
+        default=TASK_FILE,
+        help="path to the task file to run (default: task.md). Point at one unit's "
+        "task.md to loop over an externally-decomposed story — one unit per invocation.",
+    )
+    p.add_argument(
+        "--context",
+        default=CONTEXT_FILE,
+        help="path to the architecture-map file (default: context.md); shared across units.",
+    )
+    p.add_argument(
+        "--work-dir",
+        default=WORK_DIR,
+        help="scratch dir for diff/test/raw artifacts (default: .loop). Override per unit "
+        "so a loop's per-unit artifacts don't overwrite each other.",
+    )
     a = p.parse_args()
     PLAN_CLAUDE_MODEL_NAME = a.plan_model
     EXECUTOR_BACKEND = a.executor
@@ -1063,6 +1081,9 @@ def parse_cli_overrides():
     if a.test_command is not None:  # keep module-level TEST_COMMANDS if flag unused
         TEST_COMMANDS = a.test_command
     REPO_ROOT = a.repo
+    TASK_FILE = a.task
+    CONTEXT_FILE = a.context
+    WORK_DIR = a.work_dir
     DRY_RUN = a.dry_run
     return a.command
 

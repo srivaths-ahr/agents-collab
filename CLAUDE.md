@@ -43,6 +43,9 @@ smoke run against `task.md.example` + `context.md.example` in a throwaway git re
 confirm the clarity gate, an iteration, and the stop conditions still behave. CLI flags
 only override a subset of the config — most knobs are module-level constants at the top of
 `driver.py` (timeouts, retry policy, clarify rounds, allowed-tools, stall threshold).
+`--task`/`--context`/`--work-dir` make the single-unit run addressable (still **one unit
+per invocation** — loop `run` yourself for a multi-unit story; no batch/story mode by
+design), and like `--repo`/`--test-command` they just reassign the matching path globals.
 
 ## Architecture
 

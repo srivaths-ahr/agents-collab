@@ -132,9 +132,39 @@ Set defaults at the top of `driver.py`, or override per run:
 | `--max-cost-usd`   | hard cap on cumulative Claude spend in USD (0 = no limit)                       |
 | `--dry-run`        | print each step's command + prompt and exit; no calls, edits, or spend          |
 | `--repo`           | path to the target git repo (default: current dir)                              |
+| `--task`           | task file to run (default: `task.md`) — point at one unit to loop a story        |
+| `--context`        | architecture-map file (default: `context.md`); shared across units              |
+| `--work-dir`       | scratch dir for diff/test/raw artifacts (default: `.loop`); override per unit    |
 
 The `doctor` subcommand (`python driver.py doctor`) takes the same `--executor` /
 `--repo` flags, so it checks the exact CLIs the run you're about to launch needs.
+
+## Running multiple units (a decomposed story)
+
+This tool does one thing: take **one** task to a verified PASS. It deliberately does
+*not* decompose a Jira story or orchestrate a batch — splitting work is a judgment call
+you (or any other tool) make, and looping is a shell `for`. What the loop gives you is
+the part worth owning: each unit is checked against an objective gate.
+
+So decompose however you like into one `task.md` per unit, then point `--task` /
+`--context` / `--work-dir` at each and loop:
+
+```bash
+# units/01-to_roman/task.md, units/02-from_roman/task.md (depends on 01), + a shared context.md
+for u in units/*/; do
+  python driver.py run \
+    --task "$u/task.md" --context context.md --work-dir "$u/.loop" \
+    --executor codex --impl-model default \
+    --test-command "python3 test_roman.py" \
+    --max-iterations 5 --max-cost-usd 2.00 || { echo "stopped at $u"; break; }
+  cp verdict.json "$u/verdict.json"   # optional: keep each unit's verdict
+done
+```
+
+Dependent units compose because earlier units' edits stay in the working tree for later
+ones. `--work-dir` keeps each unit's `diff.patch` / `test_output.txt` from overwriting
+the last. The loop stops on the first non-pass (the run exits non-zero). Nothing touches
+git history — you commit at whatever checkpoints you choose.
 
 ## Executors
 

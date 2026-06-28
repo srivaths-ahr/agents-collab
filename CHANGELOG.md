@@ -12,6 +12,11 @@ when an executor stops behaving.
 
 ### Added
 
+- `--task` / `--context` / `--work-dir` flags make the single-unit run **addressable**:
+  point them at one unit's files to loop `run` over an externally-decomposed story (one
+  unit per invocation). `--work-dir` isolates each unit's `.loop/` scratch so a loop's
+  per-unit artifacts don't overwrite each other. Still no batch/story mode by design —
+  decomposition and looping stay yours; the tool owns the per-unit verification gate.
 - `examples/romannumbers/` — a real end-to-end run (stubbed function → verified PASS
   in one iteration) with the opus plan, the cursor diff, and the haiku verdict
   committed under `run/`. Shows the loop working before you point it at your repo.

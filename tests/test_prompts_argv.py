@@ -106,5 +106,37 @@ class TestInstructionBuilders(unittest.TestCase):
         self.assertIn(driver.CONTEXT_FILE, text)
 
 
+class TestPathOverridesFlowToInstructions(unittest.TestCase):
+    """--task/--context/--work-dir reassign the module path globals; the builders
+    read them at call time, so an overridden path must surface in the prompts. This
+    proves the multi-unit override is transparent without spawning anything."""
+
+    def setUp(self):
+        # Builders branch on clarifications.md existing in cwd; pin it absent.
+        self.assertFalse(
+            os.path.exists(driver.CLARIFY_FILE),
+            "test assumes no clarifications.md in the working dir",
+        )
+        self._saved = (driver.TASK_FILE, driver.CONTEXT_FILE, driver.WORK_DIR)
+        driver.TASK_FILE = "units/01-to_roman/task.md"
+        driver.CONTEXT_FILE = "shared/context.md"
+        driver.WORK_DIR = "units/01-to_roman/.loop"
+
+    def tearDown(self):
+        driver.TASK_FILE, driver.CONTEXT_FILE, driver.WORK_DIR = self._saved
+
+    def test_overridden_paths_appear_in_plan_and_verify_and_triage(self):
+        plan = driver.plan_instruction(None)
+        self.assertIn("units/01-to_roman/task.md", plan)
+        self.assertIn("shared/context.md", plan)
+
+        verify = driver.verify_instruction()
+        self.assertIn("units/01-to_roman/task.md", verify)
+        self.assertIn("units/01-to_roman/.loop/diff.patch", verify)
+
+        triage = driver.triage_instruction()
+        self.assertIn("units/01-to_roman/task.md", triage)
+
+
 if __name__ == "__main__":
     unittest.main()
