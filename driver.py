@@ -1003,9 +1003,110 @@ def main():
     sys.exit(0 if final_status == "pass" else 1)
 
 
+def resolve_choice(raw, options, default):
+    """Map a raw prompt answer to one of `options`. Pure (no I/O) so it's unit-tested.
+    Empty -> default; a 1-based index or an exact option -> that option; anything else
+    -> None (the caller re-asks)."""
+    raw = raw.strip()
+    if not raw:
+        return default
+    if raw.isdigit() and 1 <= int(raw) <= len(options):
+        return options[int(raw) - 1]
+    if raw in options:
+        return raw
+    return None
+
+
+def resolve_number(raw, default, *, cast, minimum):
+    """Parse a numeric prompt answer. Pure (no I/O) so it's unit-tested. Empty ->
+    default; a value >= minimum -> cast(value); non-numeric or below minimum -> None."""
+    raw = raw.strip()
+    if not raw:
+        return default
+    try:
+        val = cast(raw)
+    except ValueError:
+        return None
+    return val if val >= minimum else None
+
+
+def _interactive():
+    """True only when we can both ask and be answered — never prompt a headless/CI
+    run (it would block on input that never comes, the very hang we avoid elsewhere)."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def prompt_run_settings(a, *, executor_default, impl_default, iter_default, cost_default):
+    """For an interactive `run`, ask for any of the four run knobs NOT passed on the
+    CLI; a flag the user did pass is kept as-is. Returns (executor, impl_model,
+    max_iter, max_cost). I/O layer only — parsing lives in the pure resolve_* helpers."""
+    shown = [False]
+
+    def intro():
+        if not shown[0]:
+            print("\nSome run settings weren't passed — choose them (Enter = [default]):")
+            shown[0] = True
+
+    executor = a.executor
+    if executor is None:
+        intro()
+        names = list(executors.EXECUTORS)
+        print("\n  Executor (the coding CLI that runs EXECUTE):")
+        for i, n in enumerate(names, 1):
+            print(f"    {i}) {n}" + ("   (default)" if n == executor_default else ""))
+        while executor is None:
+            executor = resolve_choice(
+                input(f"  choice [1-{len(names)}, Enter={executor_default}]: "),
+                names,
+                executor_default,
+            )
+            if executor is None:
+                print("    not a valid choice.")
+
+    impl_model = a.impl_model
+    if impl_model is None:
+        intro()
+        suggested = executors.SUGGESTED_IMPL_MODELS.get(executor, impl_default)
+        impl_model = input(f"  Model slug for '{executor}' [Enter={suggested}]: ").strip() or suggested
+
+    max_iter = a.max_iterations
+    if max_iter is None:
+        intro()
+        while max_iter is None:
+            max_iter = resolve_number(
+                input(f"  Max iterations [Enter={iter_default}]: "),
+                iter_default,
+                cast=int,
+                minimum=1,
+            )
+            if max_iter is None:
+                print("    enter a positive integer.")
+
+    max_cost = a.max_cost_usd
+    if max_cost is None:
+        intro()
+        while max_cost is None:
+            max_cost = resolve_number(
+                input(f"  Max Claude spend USD, 0 = no cap [Enter={cost_default}]: "),
+                cost_default,
+                cast=float,
+                minimum=0.0,
+            )
+            if max_cost is None:
+                print("    enter a non-negative number.")
+
+    return executor, impl_model, max_iter, max_cost
+
+
 def parse_cli_overrides():
     """Let the three model variables (and a couple of knobs) be set at launch
-    without editing the file. Returns the optional subcommand ('doctor' or None)."""
+    without editing the file. Returns the optional subcommand ('doctor' or None).
+
+    `--executor`/`--impl-model`/`--max-iterations`/`--max-cost-usd` default to None so
+    we can tell "unset" from "set to the default value": when unset on an interactive
+    `run`, we prompt for them; otherwise we fall back to the module-constant defaults
+    (so headless/CI runs and the documented multi-unit loop — which passes them — are
+    unchanged and never block on input)."""
     global PLAN_CLAUDE_MODEL_NAME, IMPLEMENTATION_MODEL_NAME, EXECUTOR_BACKEND
     global VERIFICATION_CLAUDE_MODEL_NAME, MAX_ITERATIONS, TEST_COMMANDS, REPO_ROOT
     global MAX_COST_USD, DRY_RUN
@@ -1029,22 +1130,30 @@ def parse_cli_overrides():
     p.add_argument("--plan-model", default=PLAN_CLAUDE_MODEL_NAME)
     p.add_argument(
         "--executor",
-        default=EXECUTOR_BACKEND,
+        default=None,
         choices=list(executors.EXECUTORS),
-        help="which coding CLI runs the execute step",
+        help="which coding CLI runs the execute step "
+        "(prompts if omitted on an interactive run)",
     )
     p.add_argument(
         "--impl-model",
-        default=IMPLEMENTATION_MODEL_NAME,
-        help="executor model slug for the chosen --executor",
+        default=None,
+        help="executor model slug for the chosen --executor "
+        "(prompts if omitted on an interactive run)",
     )
     p.add_argument("--verify-model", default=VERIFICATION_CLAUDE_MODEL_NAME)
-    p.add_argument("--max-iterations", type=int, default=MAX_ITERATIONS)
+    p.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help="hard cap on loop rounds (prompts if omitted on an interactive run)",
+    )
     p.add_argument(
         "--max-cost-usd",
         type=float,
-        default=MAX_COST_USD,
-        help="hard cap on cumulative Claude spend in USD (0 = no limit)",
+        default=None,
+        help="hard cap on cumulative Claude spend in USD (0 = no limit; "
+        "prompts if omitted on an interactive run)",
     )
     p.add_argument(
         "--test-command",
@@ -1073,11 +1182,30 @@ def parse_cli_overrides():
     )
     a = p.parse_args()
     PLAN_CLAUDE_MODEL_NAME = a.plan_model
-    EXECUTOR_BACKEND = a.executor
-    IMPLEMENTATION_MODEL_NAME = a.impl_model
     VERIFICATION_CLAUDE_MODEL_NAME = a.verify_model
-    MAX_ITERATIONS = a.max_iterations
-    MAX_COST_USD = a.max_cost_usd
+
+    # The four prompt-able knobs: a passed flag always wins; otherwise ask on an
+    # interactive `run`, else keep the module-constant default (unchanged headless).
+    if a.command == "run" and not a.dry_run and _interactive():
+        EXECUTOR_BACKEND, IMPLEMENTATION_MODEL_NAME, MAX_ITERATIONS, MAX_COST_USD = (
+            prompt_run_settings(
+                a,
+                executor_default=EXECUTOR_BACKEND,
+                impl_default=IMPLEMENTATION_MODEL_NAME,
+                iter_default=MAX_ITERATIONS,
+                cost_default=MAX_COST_USD,
+            )
+        )
+    else:
+        EXECUTOR_BACKEND = a.executor if a.executor is not None else EXECUTOR_BACKEND
+        IMPLEMENTATION_MODEL_NAME = (
+            a.impl_model if a.impl_model is not None else IMPLEMENTATION_MODEL_NAME
+        )
+        MAX_ITERATIONS = (
+            a.max_iterations if a.max_iterations is not None else MAX_ITERATIONS
+        )
+        MAX_COST_USD = a.max_cost_usd if a.max_cost_usd is not None else MAX_COST_USD
+
     if a.test_command is not None:  # keep module-level TEST_COMMANDS if flag unused
         TEST_COMMANDS = a.test_command
     REPO_ROOT = a.repo

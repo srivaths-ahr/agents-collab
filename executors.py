@@ -103,3 +103,15 @@ EXECUTORS = {
 # (driver parses it for result + cost).
 # Everything else is treated as plain text.
 JSON_ENVELOPE_BACKENDS = {"claude"}
+
+# Suggested impl-model per backend, used only to seed the interactive prompt when
+# --impl-model is omitted (the driver still falls back to its own default headless).
+# Encodes the codex ChatGPT-auth lesson: 'default' lets codex pick the model from
+# ~/.codex/config.toml, since naming a model a ChatGPT-plan account can't serve is
+# rejected. `antigravity` (agy) auto-selects and ignores any model, so 'default' too.
+SUGGESTED_IMPL_MODELS = {
+    "cursor": "composer-2.5",
+    "claude": "sonnet",
+    "codex": "default",
+    "antigravity": "default",
+}

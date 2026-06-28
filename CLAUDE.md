@@ -46,6 +46,11 @@ only override a subset of the config — most knobs are module-level constants a
 `--task`/`--context`/`--work-dir` make the single-unit run addressable (still **one unit
 per invocation** — loop `run` yourself for a multi-unit story; no batch/story mode by
 design), and like `--repo`/`--test-command` they just reassign the matching path globals.
+`--executor`/`--impl-model`/`--max-iterations`/`--max-cost-usd` default to `None` so the
+driver can tell "unset" from "set to the default" and **prompt** for them on an
+interactive `run` (TTY-gated via `_interactive()` so headless/CI and `--dry-run` never
+block); the parsing is in the pure `resolve_choice`/`resolve_number` helpers (unit-tested),
+with the I/O isolated in `prompt_run_settings`.
 
 ## Architecture
 

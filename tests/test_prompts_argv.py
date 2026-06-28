@@ -3,9 +3,13 @@ reading prompt/clarification files). They are the single source of truth shared 
 the real run and the --dry-run preview, so a regression here silently changes what
 every run sends to Claude. Lock the load-bearing pieces down."""
 
+import argparse
+import contextlib
+import io
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -136,6 +140,89 @@ class TestPathOverridesFlowToInstructions(unittest.TestCase):
 
         triage = driver.triage_instruction()
         self.assertIn("units/01-to_roman/task.md", triage)
+
+
+class TestRunSettingResolvers(unittest.TestCase):
+    """The interactive run-setting prompt parses answers through these pure helpers,
+    so a regression here changes what an Enter/index/number answer resolves to."""
+
+    def test_resolve_choice_empty_is_default(self):
+        self.assertEqual(driver.resolve_choice("", ["a", "b"], "b"), "b")
+        self.assertEqual(driver.resolve_choice("   ", ["a", "b"], "a"), "a")
+
+    def test_resolve_choice_by_index_is_one_based(self):
+        opts = ["cursor", "claude", "codex"]
+        self.assertEqual(driver.resolve_choice("1", opts, "cursor"), "cursor")
+        self.assertEqual(driver.resolve_choice("3", opts, "cursor"), "codex")
+
+    def test_resolve_choice_by_exact_name(self):
+        opts = ["cursor", "claude", "codex"]
+        self.assertEqual(driver.resolve_choice("codex", opts, "cursor"), "codex")
+
+    def test_resolve_choice_invalid_is_none(self):
+        opts = ["cursor", "claude"]
+        self.assertIsNone(driver.resolve_choice("0", opts, "cursor"))  # 1-based
+        self.assertIsNone(driver.resolve_choice("9", opts, "cursor"))  # out of range
+        self.assertIsNone(driver.resolve_choice("nope", opts, "cursor"))
+
+    def test_resolve_number_empty_is_default(self):
+        self.assertEqual(driver.resolve_number("", 8, cast=int, minimum=1), 8)
+
+    def test_resolve_number_parses_and_floors_at_minimum(self):
+        self.assertEqual(driver.resolve_number("5", 8, cast=int, minimum=1), 5)
+        self.assertIsNone(driver.resolve_number("0", 8, cast=int, minimum=1))
+        self.assertEqual(driver.resolve_number("2.5", 0.0, cast=float, minimum=0.0), 2.5)
+        self.assertIsNone(driver.resolve_number("-1", 0.0, cast=float, minimum=0.0))
+        self.assertIsNone(driver.resolve_number("abc", 8, cast=int, minimum=1))
+
+
+class TestPromptRunSettings(unittest.TestCase):
+    """The interactive layer: only the knobs left None are asked; passed flags pass
+    through, and answers route through the pure resolvers above."""
+
+    def _run(self, namespace, answers):
+        it = iter(answers)
+        with contextlib.redirect_stdout(io.StringIO()):
+            with mock.patch("builtins.input", lambda *_: next(it)):
+                return driver.prompt_run_settings(
+                    namespace,
+                    executor_default="cursor",
+                    impl_default="composer-2.5",
+                    iter_default=8,
+                    cost_default=0.0,
+                )
+
+    def test_prompts_only_for_unset_knobs(self):
+        # executor passed; the rest None -> 3 answers consumed (model, iters, cost).
+        ns = argparse.Namespace(
+            executor="codex", impl_model=None, max_iterations=None, max_cost_usd=None
+        )
+        ex, im, mi, mc = self._run(ns, ["", "5", "1.50"])
+        self.assertEqual(ex, "codex")  # passed through, never asked
+        # blank model -> the per-executor suggestion for codex
+        self.assertEqual(im, driver.executors.SUGGESTED_IMPL_MODELS["codex"])
+        self.assertEqual(mi, 5)
+        self.assertEqual(mc, 1.50)
+
+    def test_all_unset_uses_index_and_defaults(self):
+        ns = argparse.Namespace(
+            executor=None, impl_model=None, max_iterations=None, max_cost_usd=None
+        )
+        names = list(driver.executors.EXECUTORS)
+        # choose executor #2 by index, accept suggested model, accept default iters+cost
+        ex, im, mi, mc = self._run(ns, ["2", "", "", ""])
+        self.assertEqual(ex, names[1])
+        self.assertEqual(im, driver.executors.SUGGESTED_IMPL_MODELS.get(names[1]))
+        self.assertEqual(mi, 8)
+        self.assertEqual(mc, 0.0)
+
+    def test_nothing_asked_when_all_passed(self):
+        ns = argparse.Namespace(
+            executor="claude", impl_model="sonnet", max_iterations=3, max_cost_usd=2.0
+        )
+        # no answers available; if it tried to input() it would StopIteration
+        ex, im, mi, mc = self._run(ns, [])
+        self.assertEqual((ex, im, mi, mc), ("claude", "sonnet", 3, 2.0))
 
 
 if __name__ == "__main__":

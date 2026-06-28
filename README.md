@@ -124,17 +124,24 @@ Set defaults at the top of `driver.py`, or override per run:
 | Flag               | Meaning                                                                         |
 | ------------------ | ------------------------------------------------------------------------------- |
 | `--plan-model`     | Claude model for planning (e.g. `opus`)                                         |
-| `--executor`       | `cursor` · `claude` · `codex` · `antigravity`                                   |
-| `--impl-model`     | executor model slug for the chosen backend                                      |
+| `--executor`       | `cursor` · `claude` · `codex` · `antigravity` †                                 |
+| `--impl-model`     | executor model slug for the chosen backend †                                    |
 | `--verify-model`   | Claude model for verification (e.g. `haiku`)                                    |
 | `--test-command`   | deterministic gate; pass/fail is ground truth. Repeatable — all gates must pass |
-| `--max-iterations` | hard cap on loop rounds                                                         |
-| `--max-cost-usd`   | hard cap on cumulative Claude spend in USD (0 = no limit)                       |
+| `--max-iterations` | hard cap on loop rounds †                                                       |
+| `--max-cost-usd`   | hard cap on cumulative Claude spend in USD (0 = no limit) †                     |
 | `--dry-run`        | print each step's command + prompt and exit; no calls, edits, or spend          |
 | `--repo`           | path to the target git repo (default: current dir)                              |
 | `--task`           | task file to run (default: `task.md`) — point at one unit to loop a story        |
 | `--context`        | architecture-map file (default: `context.md`); shared across units              |
 | `--work-dir`       | scratch dir for diff/test/raw artifacts (default: `.loop`); override per unit    |
+
+**†** Omit these on an interactive `run` and the driver **prompts you to choose** (Enter
+accepts the shown default; for `--impl-model` the default is a per-executor suggestion —
+e.g. `default` for `codex`, which lets it pick a model its account can serve). Passed
+flags are never asked about, and a non-interactive run (piped/CI, or `--dry-run`) silently
+uses the defaults — so scripts and the multi-unit loop below, which pass the flags, never
+block.
 
 The `doctor` subcommand (`python driver.py doctor`) takes the same `--executor` /
 `--repo` flags, so it checks the exact CLIs the run you're about to launch needs.

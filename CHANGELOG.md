@@ -12,6 +12,12 @@ when an executor stops behaving.
 
 ### Added
 
+- **Interactive prompts for the run knobs.** Omit `--executor`, `--impl-model`,
+  `--max-iterations`, or `--max-cost-usd` on an interactive `run` and the driver asks
+  you to choose (Enter accepts the default; `--impl-model` suggests a per-executor model
+  — e.g. `default` for `codex`). Passed flags are never asked about; a non-interactive
+  run (piped/CI or `--dry-run`) silently uses the defaults, so scripts and the multi-unit
+  loop never block. New `executors.SUGGESTED_IMPL_MODELS` map backs the model suggestion.
 - `--task` / `--context` / `--work-dir` flags make the single-unit run **addressable**:
   point them at one unit's files to loop `run` over an externally-decomposed story (one
   unit per invocation). `--work-dir` isolates each unit's `.loop/` scratch so a loop's
