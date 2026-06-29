@@ -196,7 +196,19 @@ def run(cmd, *, timeout, cwd=REPO_ROOT, stdin=None):
     if exe is None:
         raise FatalError(f"command not found: {name} — is it installed and on PATH?")
     cmd = [exe, *cmd[1:]]
-    kwargs = dict(cwd=cwd, timeout=timeout, capture_output=True, text=True)
+    # Pin UTF-8 for stdin/stdout/stderr. The prompts (and Claude's output) are UTF-8
+    # and contain non-ASCII (→, em dashes, smart quotes); without this, text mode
+    # uses the platform default — cp1252 on Windows — and the stdin write of the
+    # prompt raises UnicodeEncodeError on the first such character. errors="replace"
+    # keeps a stray undecodable byte in a child's output from crashing the loop.
+    kwargs = dict(
+        cwd=cwd,
+        timeout=timeout,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if stdin is None:
         kwargs["stdin"] = subprocess.DEVNULL
     else:
