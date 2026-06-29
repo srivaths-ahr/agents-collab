@@ -144,5 +144,56 @@ class TestProgressFingerprint(unittest.TestCase):
         )
 
 
+class TestNormalizeQuestion(unittest.TestCase):
+    def test_well_formed_dict_passthrough(self):
+        q = {"id": "Q1", "question": "Which API?", "why": "plan depends on it"}
+        self.assertEqual(driver.normalize_question(q), q)
+
+    def test_bare_string_becomes_question_text(self):
+        self.assertEqual(
+            driver.normalize_question("Which API?"),
+            {"id": "?", "question": "Which API?", "why": ""},
+        )
+
+    def test_alternate_keys_are_mapped(self):
+        # the model sometimes emits finding-shaped objects (title/description)
+        q = {"id": "X", "title": "Ambiguous output format", "description": "sha or hex?"}
+        self.assertEqual(
+            driver.normalize_question(q),
+            {"id": "X", "question": "Ambiguous output format", "why": "sha or hex?"},
+        )
+
+    def test_missing_id_defaults(self):
+        self.assertEqual(driver.normalize_question({"question": "q"})["id"], "?")
+
+    def test_non_string_values_are_stringified(self):
+        out = driver.normalize_question({"id": 3, "question": 42})
+        self.assertEqual(out, {"id": "3", "question": "42", "why": ""})
+
+
+class TestNormalizeIssue(unittest.TestCase):
+    def test_plain_string_passthrough(self):
+        self.assertEqual(driver.normalize_issue("missing criteria"), "missing criteria")
+
+    def test_finding_shaped_dict_renders_readable(self):
+        i = {"id": "I1", "title": "Unclear format", "description": "sha or hex?"}
+        self.assertEqual(driver.normalize_issue(i), "Unclear format — sha or hex?")
+
+    def test_unknown_dict_falls_back_to_json(self):
+        self.assertEqual(driver.normalize_issue({"x": 1}), '{"x": 1}')
+
+
+class TestAsList(unittest.TestCase):
+    def test_none_is_empty(self):
+        self.assertEqual(driver._as_list(None), [])
+
+    def test_list_passthrough(self):
+        self.assertEqual(driver._as_list([1, 2]), [1, 2])
+
+    def test_scalar_is_wrapped(self):
+        self.assertEqual(driver._as_list("x"), ["x"])
+        self.assertEqual(driver._as_list({"a": 1}), [{"a": 1}])
+
+
 if __name__ == "__main__":
     unittest.main()

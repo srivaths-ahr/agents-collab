@@ -12,6 +12,14 @@ when an executor stops behaving.
 
 ### Fixed
 
+- **Clarity gate tolerates schema drift in the triage output.** The gate assumed
+  every `questions` item was a `{id, question, why}` object and called `q.get(...)`
+  on it; when the model returned a bare string (or a finding-shaped object keyed
+  `title`/`description`), it crashed with `AttributeError: 'str' object has no
+  attribute 'get'`. `questions` and `issues` are now coerced to their expected
+  shapes (`normalize_question` / `normalize_issue`, both pure and unit-tested), and
+  all three fields are forced to lists, so a model schema slip degrades gracefully
+  instead of aborting the run. Cleans up the raw `{...}` reprs that issues printed.
 - **Windows: external commands now launch via their PATH-resolved path.** `run()`
   resolves `cmd[0]` with `shutil.which()` (which respects Windows `PATHEXT`) and
   passes the full path to `subprocess`, instead of handing the bare name to a

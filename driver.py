@@ -550,6 +550,36 @@ def triage_instruction():
     )
 
 
+def _as_list(v):
+    """Coerce a JSON field to a list: None -> [], a lone object/string -> [it].
+    The triage model is told to emit arrays but sometimes returns a single value."""
+    if v is None:
+        return []
+    return v if isinstance(v, list) else [v]
+
+
+def normalize_question(q):
+    """Coerce one clarity question to the {id, question, why} shape the gate prints
+    and serializes. triage.md specifies that schema, but the model sometimes returns
+    a bare string or an object keyed differently (title/text/description). Pure, so
+    it's unit-tested; without it a non-dict question crashes the gate on `q.get`."""
+    if isinstance(q, dict):
+        text = q.get("question") or q.get("title") or q.get("text") or ""
+        why = q.get("why") or q.get("description") or ""
+        return {"id": str(q.get("id") or "?"), "question": str(text), "why": str(why)}
+    return {"id": "?", "question": str(q), "why": ""}
+
+
+def normalize_issue(i):
+    """Coerce one clarity issue to a readable string. Issues are meant to be strings;
+    the model sometimes returns finding-shaped objects, which would otherwise print
+    as raw `{...}` reprs. Pure."""
+    if isinstance(i, dict):
+        parts = [str(i[k]) for k in ("title", "issue", "text", "description") if i.get(k)]
+        return " — ".join(parts) if parts else json.dumps(i, ensure_ascii=False)
+    return str(i)
+
+
 def triage_step():
     """Judge whether task.md is clear enough to plan. Returns (parsed, cost)."""
     res = run_claude(
@@ -586,9 +616,9 @@ def clarify_gate():
             log("task is clear enough to plan.", prefix="✓")
             return cost
 
-        issues = parsed.get("issues", [])
-        questions = parsed.get("questions", [])
-        assumptions = parsed.get("assumptions_if_unanswered", [])
+        issues = [normalize_issue(i) for i in _as_list(parsed.get("issues"))]
+        questions = [normalize_question(q) for q in _as_list(parsed.get("questions"))]
+        assumptions = [str(a) for a in _as_list(parsed.get("assumptions_if_unanswered"))]
         log(f"task not ready (round {round_no}):", prefix="!")
         for i in issues:
             log(f"  issue: {i}")
