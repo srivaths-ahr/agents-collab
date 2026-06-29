@@ -674,7 +674,10 @@ def halt_needs_clarification(nc, total_cost):
         )
         + "\n",
     )
-    log(f"questions also written to {CLARIFY_NEEDED_FILE}")
+    # Absolute path: the file is written to cwd after os.chdir(REPO_ROOT) and is
+    # gitignored, so a bare relative name leaves users hunting for it (esp. on
+    # Windows / inside an IDE panel where the cwd isn't obvious).
+    log(f"questions also written to {os.path.abspath(CLARIFY_NEEDED_FILE)}")
     log(f"claude spend : ${total_cost:.4f}")
     sys.exit(2)
 
@@ -1149,7 +1152,8 @@ def parse_cli_overrides():
     `run`, we prompt for them; otherwise we fall back to the module-constant defaults
     (so headless/CI runs and the documented multi-unit loop — which passes them — are
     unchanged and never block on input)."""
-    global PLAN_CLAUDE_MODEL_NAME, IMPLEMENTATION_MODEL_NAME, EXECUTOR_BACKEND
+    global PLAN_CLAUDE_MODEL_NAME, CLARIFY_MODEL_NAME, IMPLEMENTATION_MODEL_NAME
+    global EXECUTOR_BACKEND
     global VERIFICATION_CLAUDE_MODEL_NAME, MAX_ITERATIONS, TEST_COMMANDS, REPO_ROOT
     global MAX_COST_USD, DRY_RUN
     global TASK_FILE, CONTEXT_FILE, WORK_DIR
@@ -1169,6 +1173,7 @@ def parse_cli_overrides():
         help="print the exact commands and prompts each step would issue, then "
         "exit — no Claude calls, no executor, no edits, no spend.",
     )
+    p.add_argument("--clarify-model", default=CLARIFY_MODEL_NAME)
     p.add_argument("--plan-model", default=PLAN_CLAUDE_MODEL_NAME)
     p.add_argument(
         "--executor",
@@ -1223,6 +1228,7 @@ def parse_cli_overrides():
         "so a loop's per-unit artifacts don't overwrite each other.",
     )
     a = p.parse_args()
+    CLARIFY_MODEL_NAME = a.clarify_model
     PLAN_CLAUDE_MODEL_NAME = a.plan_model
     VERIFICATION_CLAUDE_MODEL_NAME = a.verify_model
 
