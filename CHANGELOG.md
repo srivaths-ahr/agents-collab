@@ -10,6 +10,27 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Windows: external commands now launch via their PATH-resolved path.** `run()`
+  resolves `cmd[0]` with `shutil.which()` (which respects Windows `PATHEXT`) and
+  passes the full path to `subprocess`, instead of handing the bare name to a
+  `shell=False` `CreateProcess` that never searches `PATHEXT`. npm-installed CLIs
+  land as `.cmd` shims (e.g. `claude.cmd`), so the old code died at the clarity gate
+  with `command not found: claude` even though `claude` ran when typed and `doctor`
+  reported it present — `doctor` already resolved via `shutil.which`, so the two
+  disagreed. The fix is at the single subprocess chokepoint, so it covers `claude`,
+  every executor CLI, the `bash -lc` test gate, and `git` uniformly. No behavior
+  change on macOS/Linux (running a `which`-resolved full path is identical to
+  running by name). Requires a Python with the `.bat`/`.cmd` arg-escaping fix
+  (3.8.19 / 3.9.19 / 3.10.14 / 3.11.9 / 3.12.3+).
+
+### Changed
+
+- **README Windows guidance.** Spelled out the WSL vs. hand-copy paths and their
+  caveats (the test gate still needs `bash` on `PATH`; `AGENTS.md` is only read by
+  the Codex/Cursor executors), and cross-linked them from the Install section.
+
 ## [0.2.0] — 2026-06-28
 
 ### Added

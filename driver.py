@@ -183,7 +183,19 @@ def run(cmd, *, timeout, cwd=REPO_ROOT, stdin=None):
     When no input is provided we close the child's stdin (DEVNULL) rather than
     letting it inherit ours. Headless agent CLIs that probe stdin otherwise block
     forever waiting on input that never comes (e.g. `agy --print` hangs with no
-    output until its timeout). Closing stdin gives them an immediate EOF."""
+    output until its timeout). Closing stdin gives them an immediate EOF.
+
+    Resolve cmd[0] on PATH ourselves (shutil.which respects Windows PATHEXT) and
+    pass the full path. subprocess(shell=False) uses CreateProcess on Windows,
+    which does NOT search PATHEXT — so an npm shim like `claude.cmd` is invisible
+    by the bare name `claude`, even though it runs fine when typed. This mirrors
+    the resolution `doctor` already trusts (_probe_tool), so a tool doctor reports
+    as present actually launches."""
+    name = cmd[0]
+    exe = shutil.which(name)
+    if exe is None:
+        raise FatalError(f"command not found: {name} — is it installed and on PATH?")
+    cmd = [exe, *cmd[1:]]
     kwargs = dict(cwd=cwd, timeout=timeout, capture_output=True, text=True)
     if stdin is None:
         kwargs["stdin"] = subprocess.DEVNULL
@@ -193,9 +205,9 @@ def run(cmd, *, timeout, cwd=REPO_ROOT, stdin=None):
         proc = subprocess.run(cmd, **kwargs)
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
-        raise StepError(f"command timed out after {timeout}s: {cmd[0]} ...")
+        raise StepError(f"command timed out after {timeout}s: {name} ...")
     except FileNotFoundError:
-        raise FatalError(f"command not found: {cmd[0]} — is it installed and on PATH?")
+        raise FatalError(f"command not found: {name} — is it installed and on PATH?")
 
 
 # ---- agent invocations -----------------------------------------------------

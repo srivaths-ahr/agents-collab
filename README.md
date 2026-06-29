@@ -38,9 +38,19 @@ loop converges against objective, machine-checkable acceptance criteria.
 - **Claude Code** (`claude`) — used for clarify, plan, and verify.
 - **One executor CLI**, matching your chosen backend:
   `cursor-agent` · `claude` · `codex` · `agy` (Antigravity).
-- **macOS or Linux.** The driver is portable Python, but `install.sh` is a bash
-  script (`set -euo pipefail`) and the test gate runs via `bash -lc`. On **Windows,
-  use WSL**, or copy the four files in by hand and run `python driver.py` directly.
+- **macOS or Linux.** The driver itself is portable, stdlib-only Python, but two
+  things assume a POSIX shell: `install.sh` (a bash script — `set -euo pipefail`)
+  and the test gate, which shells out via `bash -lc` (`run_tests` in `driver.py`).
+  On **Windows**:
+  - **WSL (recommended)** — a real Linux shell; `install.sh` and the full
+    plan → execute → verify loop run unchanged.
+  - **Copy the tool files in by hand** — `driver.py`, `executors.py`, and
+    `prompts/` (add `AGENTS.md` only for the Codex or Cursor executor; the driver
+    never reads it), then run `python driver.py`. Caveat: the test gate is the one
+    part that needs **`bash` on `PATH`** (e.g. Git Bash). With `--test-command` set,
+    a missing bash aborts the run with `command not found: bash`; with none set the
+    loop never calls bash — but then nothing machine-checks the change, which is the
+    whole point of the tool. So bare `cmd`/PowerShell can't run the loop meaningfully.
 
 Each tool authenticates through its own login or environment variable. **No
 credentials are stored in this repo.**
@@ -63,6 +73,9 @@ The installer copies the tool files (`driver.py`, `executors.py`, `prompts/`) an
 seeds `AGENTS.md` + the `*.example` files **only if absent** — re-run it to upgrade
 without clobbering your standing rules or an in-progress task. Prefer to do it by
 hand? Copy `{driver.py,executors.py,prompts,AGENTS.md}` into the repo yourself.
+
+**On Windows**, `install.sh` is bash-only — use WSL, or copy the files in by hand;
+see [Requirements](#requirements) for the caveats (the test gate still needs `bash`).
 
 Run the loop from inside that repo (the prompt files are read by relative path).
 
