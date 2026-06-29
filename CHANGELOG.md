@@ -20,6 +20,15 @@ when an executor stops behaving.
 
 ### Fixed
 
+- **Windows: subprocess I/O is pinned to UTF-8.** `run()` ran children in text mode
+  without an explicit encoding, so it used the platform default — cp1252 on Windows.
+  Once the prompt (and Claude's output) started flowing through the pipe, the first
+  non-ASCII character crashed the run with `UnicodeEncodeError: 'charmap' codec can't
+  encode character '→'` (the `→` in `prompts/plan.md`). `run()` now passes
+  `encoding="utf-8", errors="replace"` for stdin/stdout/stderr, matching the UTF-8
+  prompt files and Claude's UTF-8 output; `errors="replace"` keeps a stray
+  undecodable byte in any child's output from aborting the loop. No change on
+  macOS/Linux, where the default was already UTF-8.
 - **Windows: Claude prompts no longer corrupted by cmd.exe newline truncation.**
   `claude` is an npm `.cmd` shim on Windows, which `subprocess` runs through cmd.exe;
   cmd.exe ends a command at the first newline, so a multi-line `-p` prompt or
