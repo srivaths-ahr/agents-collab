@@ -225,7 +225,7 @@ def run_claude(
 ):
     """Invoke Claude Code headless. Returns dict: {result, cost, is_error, raw}.
     Model is selected per-invocation, so each role can run on a different one."""
-    cmd = build_claude_argv(
+    cmd, stdin_text = build_claude_argv(
         prompt,
         model=model,
         system_prompt_file=system_prompt_file,
@@ -233,8 +233,23 @@ def run_claude(
         bare=bare,
         skip_permissions=skip_permissions,
     )
-    rc, out, err = run(cmd, timeout=timeout)
+    rc, out, err = run(cmd, timeout=timeout, stdin=stdin_text)
     return parse_claude_envelope(out, err, rc)
+
+
+# Windows: the `claude` CLI is an npm `.cmd` shim, which subprocess runs through
+# cmd.exe; cmd.exe ends a command at the first newline, so any argv element holding
+# a multi-line value (the `-p` prompt, or --append-system-prompt's contents) arrives
+# truncated at its first '\n'. The CLI has no *-system-prompt-file flag (verified
+# against claude 2.1.x), so on Windows we route BOTH the user prompt and the
+# system-prompt-file contents through STDIN — `claude -p` reads the prompt from
+# stdin when no positional prompt is given — and omit --append-system-prompt. This
+# marker separates the folded-in system instructions from the user request.
+WIN_STDIN_PROMPT_SEP = "===== END SYSTEM INSTRUCTIONS — USER REQUEST FOLLOWS ====="
+
+
+def _running_on_windows():
+    return os.name == "nt"
 
 
 def build_claude_argv(
@@ -245,21 +260,37 @@ def build_claude_argv(
     allowed_tools,
     bare=False,
     skip_permissions=False,
+    windows=None,
 ):
-    """Assemble the exact `claude` argv for a headless one-shot. Pure except for
-    reading the system-prompt file (its contents are passed via
-    --append-system-prompt). Shared by run_claude and the --dry-run preview so the
-    two can never drift."""
-    cmd = ["claude", "-p", prompt, "--model", model, "--output-format", "json"]
+    """Assemble the `claude` argv for a headless one-shot, plus its STDIN payload.
+    Returns (argv, stdin_text). On macOS/Linux stdin_text is None and the prompt is
+    the `-p` positional with the system-prompt-file contents passed via
+    --append-system-prompt — unchanged. On Windows both are routed through stdin and
+    --append-system-prompt is dropped (see WIN_STDIN_PROMPT_SEP), because cmd.exe
+    truncates multi-line argv. Pure except for reading the system-prompt file.
+    `windows` overrides the platform check (tests). Shared by run_claude and the
+    --dry-run preview so the two can never drift."""
+    if windows is None:
+        windows = _running_on_windows()
+    sys_text = read_file(system_prompt_file) if system_prompt_file else ""
+    cmd = ["claude", "-p"]
+    stdin_text = None
+    if windows:
+        cmd += ["--model", model, "--output-format", "json"]
+        stdin_text = (
+            f"{sys_text}\n\n{WIN_STDIN_PROMPT_SEP}\n\n{prompt}" if sys_text else prompt
+        )
+    else:
+        cmd += [prompt, "--model", model, "--output-format", "json"]
     if bare:
         cmd.append("--bare")
-    if system_prompt_file:
-        cmd += ["--append-system-prompt", read_file(system_prompt_file)]
+    if system_prompt_file and not windows:
+        cmd += ["--append-system-prompt", sys_text]
     if skip_permissions:
         cmd.append("--dangerously-skip-permissions")
     elif allowed_tools:
         cmd += ["--allowedTools", ",".join(allowed_tools)]
-    return cmd
+    return cmd, stdin_text
 
 
 def parse_claude_envelope(out, err, rc):
@@ -860,7 +891,7 @@ def _preview_claude(
 ):
     banner(f"{title}  (claude, model={model})")
     sys_content = read_file(system_prompt_file)
-    argv = build_claude_argv(
+    argv, stdin_text = build_claude_argv(
         prompt,
         model=model,
         system_prompt_file=system_prompt_file,
@@ -869,12 +900,27 @@ def _preview_claude(
         skip_permissions=skip_permissions,
     )
     subs = {prompt: "<USER PROMPT ↓>", sys_content: f"<{system_prompt_file} contents>"}
-    log(
-        f"system prompt: {system_prompt_file} "
-        f"({len(sys_content)} chars, via --append-system-prompt)"
-    )
-    log(f"argv: {_render_argv(argv, subs)}")
-    print("\n  user prompt:\n" + _indent(prompt) + "\n", flush=True)
+    if stdin_text is None:
+        log(
+            f"system prompt: {system_prompt_file} "
+            f"({len(sys_content)} chars, via --append-system-prompt)"
+        )
+        log(f"argv: {_render_argv(argv, subs)}")
+        print("\n  user prompt:\n" + _indent(prompt) + "\n", flush=True)
+    else:
+        # Windows: prompt + system prompt are folded into STDIN (cmd.exe truncates
+        # multi-line argv); argv carries no prompt/system-prompt tokens.
+        log(
+            f"system prompt: {system_prompt_file} "
+            f"({len(sys_content)} chars, folded into STDIN — Windows)"
+        )
+        log(f"argv: {_render_argv(argv, subs)}  < STDIN")
+        print(
+            "\n  STDIN (system instructions + user prompt):\n"
+            + _indent(stdin_text)
+            + "\n",
+            flush=True,
+        )
 
 
 def _preview_executor():

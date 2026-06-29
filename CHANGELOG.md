@@ -20,6 +20,20 @@ when an executor stops behaving.
 
 ### Fixed
 
+- **Windows: Claude prompts no longer corrupted by cmd.exe newline truncation.**
+  `claude` is an npm `.cmd` shim on Windows, which `subprocess` runs through cmd.exe;
+  cmd.exe ends a command at the first newline, so a multi-line `-p` prompt or
+  `--append-system-prompt` value arrived truncated at its first `\n`. The plan step
+  failed hard (`claude returned non-JSON envelope` — the cut dropped `--output-format
+  json` along with most of the prompt); the clarity gate only survived because its
+  user prompt is a single line. `build_claude_argv` now returns `(argv, stdin_text)`:
+  on Windows the user prompt **and** the system-prompt-file contents are delivered
+  via STDIN (`claude -p` reads the prompt from stdin) with `--append-system-prompt`
+  dropped, so no multi-line value ever rides in argv. macOS/Linux are unchanged
+  (prompt as the `-p` argument, system prompt via `--append-system-prompt`). Verified
+  against claude 2.1.x — which has no `--*-system-prompt-file` flag, hence the fold
+  into stdin. This sits on top of the earlier `shutil.which` fix (which is what let
+  the shim launch at all).
 - **Clarity gate tolerates schema drift in the triage output.** The gate assumed
   every `questions` item was a `{id, question, why}` object and called `q.get(...)`
   on it; when the model returned a bare string (or a finding-shaped object keyed

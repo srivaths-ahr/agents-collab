@@ -17,27 +17,40 @@ import driver  # noqa: E402
 
 
 class TestBuildClaudeArgv(unittest.TestCase):
+    # Pin windows=False so the POSIX argv shape is asserted regardless of the host
+    # the tests run on; the Windows/stdin branch is covered separately below.
     def test_minimal_argv_shape(self):
-        argv = driver.build_claude_argv(
-            "PROMPT", model="opus", system_prompt_file=None, allowed_tools=None
+        argv, stdin_text = driver.build_claude_argv(
+            "PROMPT",
+            model="opus",
+            system_prompt_file=None,
+            allowed_tools=None,
+            windows=False,
         )
         self.assertEqual(
             argv,
             ["claude", "-p", "PROMPT", "--model", "opus", "--output-format", "json"],
         )
+        self.assertIsNone(stdin_text)  # POSIX: prompt is an argv token, not stdin
 
     def test_bare_flag(self):
-        argv = driver.build_claude_argv(
-            "P", model="haiku", system_prompt_file=None, allowed_tools=None, bare=True
+        argv, _ = driver.build_claude_argv(
+            "P",
+            model="haiku",
+            system_prompt_file=None,
+            allowed_tools=None,
+            bare=True,
+            windows=False,
         )
         self.assertIn("--bare", argv)
 
     def test_allowed_tools_joined_with_commas(self):
-        argv = driver.build_claude_argv(
+        argv, _ = driver.build_claude_argv(
             "P",
             model="m",
             system_prompt_file=None,
             allowed_tools=["Read", "Grep", "Glob"],
+            windows=False,
         )
         i = argv.index("--allowedTools")
         self.assertEqual(argv[i + 1], "Read,Grep,Glob")
@@ -45,30 +58,90 @@ class TestBuildClaudeArgv(unittest.TestCase):
     def test_skip_permissions_replaces_allowed_tools(self):
         # skip_permissions and allowedTools are mutually exclusive (elif): when
         # skipping, no --allowedTools should appear.
-        argv = driver.build_claude_argv(
+        argv, _ = driver.build_claude_argv(
             "P",
             model="m",
             system_prompt_file=None,
             allowed_tools=["Read"],
             skip_permissions=True,
+            windows=False,
         )
         self.assertIn("--dangerously-skip-permissions", argv)
         self.assertNotIn("--allowedTools", argv)
 
     def test_system_prompt_file_contents_are_appended(self):
         # Write a temp prompt file and confirm its CONTENTS (not its path) follow
-        # --append-system-prompt.
+        # --append-system-prompt on the POSIX path.
         path = os.path.join(os.path.dirname(__file__), "_tmp_sys_prompt.txt")
         with open(path, "w", encoding="utf-8") as f:
             f.write("SYSTEM-PROMPT-BODY")
         try:
-            argv = driver.build_claude_argv(
-                "P", model="m", system_prompt_file=path, allowed_tools=["Read"]
+            argv, stdin_text = driver.build_claude_argv(
+                "P",
+                model="m",
+                system_prompt_file=path,
+                allowed_tools=["Read"],
+                windows=False,
             )
             i = argv.index("--append-system-prompt")
             self.assertEqual(argv[i + 1], "SYSTEM-PROMPT-BODY")
+            self.assertIsNone(stdin_text)
         finally:
             os.remove(path)
+
+    def test_windows_routes_prompt_and_system_via_stdin(self):
+        # On Windows nothing multi-line may ride in argv (cmd.exe truncates it at the
+        # first newline). The prompt + system-prompt contents go via stdin instead,
+        # and --append-system-prompt is dropped.
+        path = os.path.join(os.path.dirname(__file__), "_tmp_sys_prompt_win.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("SYSTEM-BODY\nwith-a-newline")
+        try:
+            argv, stdin_text = driver.build_claude_argv(
+                "USER-PROMPT\nline-two",
+                model="opus",
+                system_prompt_file=path,
+                allowed_tools=["Read"],
+                windows=True,
+            )
+            # No prompt/system tokens in argv; nothing in argv carries a newline.
+            self.assertNotIn("--append-system-prompt", argv)
+            self.assertNotIn("USER-PROMPT\nline-two", argv)
+            self.assertTrue(all("\n" not in tok for tok in argv))
+            self.assertEqual(
+                argv,
+                [
+                    "claude",
+                    "-p",
+                    "--model",
+                    "opus",
+                    "--output-format",
+                    "json",
+                    "--allowedTools",
+                    "Read",
+                ],
+            )
+            # stdin carries system body, separator, then the user prompt, in order.
+            self.assertIn("SYSTEM-BODY\nwith-a-newline", stdin_text)
+            self.assertIn(driver.WIN_STDIN_PROMPT_SEP, stdin_text)
+            self.assertIn("USER-PROMPT\nline-two", stdin_text)
+            self.assertLess(
+                stdin_text.index("SYSTEM-BODY"), stdin_text.index("USER-PROMPT")
+            )
+        finally:
+            os.remove(path)
+
+    def test_windows_without_system_prompt_sends_only_prompt_via_stdin(self):
+        argv, stdin_text = driver.build_claude_argv(
+            "JUST-THE-PROMPT",
+            model="m",
+            system_prompt_file=None,
+            allowed_tools=None,
+            windows=True,
+        )
+        self.assertEqual(stdin_text, "JUST-THE-PROMPT")
+        self.assertNotIn(driver.WIN_STDIN_PROMPT_SEP, stdin_text)
+        self.assertNotIn("JUST-THE-PROMPT", argv)
 
 
 class TestInstructionBuilders(unittest.TestCase):
