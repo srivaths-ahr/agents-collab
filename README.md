@@ -136,6 +136,7 @@ Set defaults at the top of `driver.py`, or override per run:
 
 | Flag               | Meaning                                                                         |
 | ------------------ | ------------------------------------------------------------------------------- |
+| `--clarify-model`  | Claude model for the clarity gate (e.g. `haiku`)                                |
 | `--plan-model`     | Claude model for planning (e.g. `opus`)                                         |
 | `--executor`       | `cursor` · `claude` · `codex` · `antigravity` †                                 |
 | `--impl-model`     | executor model slug for the chosen backend †                                    |
@@ -245,7 +246,7 @@ plan. The driver only meters and caps the Claude side.
 
 Where the Claude spend goes, per loop:
 
-- **Clarity gate** — one cheap call up front (`--verify-model`-class, e.g. `haiku`).
+- **Clarity gate** — one cheap call up front (`--clarify-model`, e.g. `haiku`).
 - **Each iteration** — one **plan** call (`--plan-model`, e.g. `opus`) plus one
   **verify** call (`--verify-model`, e.g. `haiku`). The planning model dominates;
   verification is comparatively negligible.

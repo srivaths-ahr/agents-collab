@@ -10,6 +10,14 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+### Added
+
+- **`--clarify-model` flag.** The clarity gate's model was hardcoded to `haiku`
+  (the `CLARIFY_MODEL_NAME` module constant) with no way to override it per run,
+  unlike `--plan-model` and `--verify-model`. It now has a matching flag, wired the
+  same way (a passed value overrides the constant; never prompted). Use a stronger
+  clarify model when the gate is mis-judging task readiness.
+
 ### Fixed
 
 - **Clarity gate tolerates schema drift in the triage output.** The gate assumed
@@ -35,6 +43,11 @@ when an executor stops behaving.
 
 ### Changed
 
+- **The clarity-gate halt now logs the absolute path** of the
+  `clarifications_needed.json` it writes, instead of a bare filename. The file is
+  written to the cwd after `os.chdir(REPO_ROOT)` and is gitignored, so a relative
+  name left users (especially on Windows / inside an IDE panel) unsure where it
+  landed — or thinking it was never written.
 - **README Windows guidance.** Spelled out the WSL vs. hand-copy paths and their
   caveats (the test gate still needs `bash` on `PATH`; `AGENTS.md` is only read by
   the Codex/Cursor executors), and cross-linked them from the Install section.
