@@ -31,6 +31,14 @@ when an executor stops behaving.
 
 ### Fixed
 
+- **Windows: the test gate no longer hard-requires `bash`.** `run_tests` shelled
+  out to `bash -lc <cmd>` unconditionally, so on a Windows box without Git Bash/WSL
+  the loop reached VERIFY and then died with `command not found: bash`. It now
+  prefers `bash -lc` on every platform (so one `--test-command` stays portable) and
+  falls back to `cmd /c` on Windows when `bash` isn't on `PATH`, logging a note that
+  cmd.exe shell semantics differ. macOS/Linux are unchanged. New pure
+  `test_shell_argv` helper (unit-tested); the `--dry-run` preview shows which shell
+  the gates run under.
 - **Windows: subprocess I/O is pinned to UTF-8.** `run()` ran children in text mode
   without an explicit encoding, so it used the platform default — cp1252 on Windows.
   Once the prompt (and Claude's output) started flowing through the pipe, the first

@@ -38,19 +38,16 @@ loop converges against objective, machine-checkable acceptance criteria.
 - **Claude Code** (`claude`) — used for clarify, plan, and verify.
 - **One executor CLI**, matching your chosen backend:
   `cursor-agent` · `claude` · `codex` · `agy` (Antigravity).
-- **macOS or Linux.** The driver itself is portable, stdlib-only Python, but two
-  things assume a POSIX shell: `install.sh` (a bash script — `set -euo pipefail`)
-  and the test gate, which shells out via `bash -lc` (`run_tests` in `driver.py`).
-  On **Windows**:
-  - **WSL (recommended)** — a real Linux shell; `install.sh` and the full
-    plan → execute → verify loop run unchanged.
-  - **Copy the tool files in by hand** — `driver.py`, `executors.py`, and
-    `prompts/` (add `AGENTS.md` only for the Codex or Cursor executor; the driver
-    never reads it), then run `python driver.py`. Caveat: the test gate is the one
-    part that needs **`bash` on `PATH`** (e.g. Git Bash). With `--test-command` set,
-    a missing bash aborts the run with `command not found: bash`; with none set the
-    loop never calls bash — but then nothing machine-checks the change, which is the
-    whole point of the tool. So bare `cmd`/PowerShell can't run the loop meaningfully.
+- **macOS, Linux, or Windows.** The driver is portable, stdlib-only Python. The
+  only POSIX-shell assumption left is `install.sh` (a bash script). On **Windows**:
+  - **WSL** — a real Linux shell; `install.sh` and the full loop run unchanged.
+  - **Native (cmd/PowerShell)** — the loop itself runs. Use the GitHub-raw copy or
+    re-copy `driver.py`, `executors.py`, `prompts/` by hand (add `AGENTS.md` only for
+    the Codex/Cursor executor; the driver never reads it), since `install.sh` won't
+    run without bash. The **test gate** prefers `bash -lc` (so one `--test-command`
+    is portable), and falls back to `cmd /c` when `bash` isn't on `PATH` — so gates
+    run even on bare Windows, though cmd.exe shell syntax differs. Install **Git
+    Bash** (or use WSL) for exact parity with macOS/Linux test commands.
 
 Each tool authenticates through its own login or environment variable. **No
 credentials are stored in this repo.**
@@ -75,7 +72,8 @@ without clobbering your standing rules or an in-progress task. Prefer to do it b
 hand? Copy `{driver.py,executors.py,prompts,AGENTS.md}` into the repo yourself.
 
 **On Windows**, `install.sh` is bash-only — use WSL, or copy the files in by hand;
-see [Requirements](#requirements) for the caveats (the test gate still needs `bash`).
+the loop itself runs natively. See [Requirements](#requirements) for the caveats
+(the test gate prefers `bash`, falling back to `cmd /c` without it).
 
 Run the loop from inside that repo (the prompt files are read by relative path).
 
