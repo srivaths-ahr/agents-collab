@@ -144,6 +144,27 @@ class TestBuildClaudeArgv(unittest.TestCase):
         self.assertNotIn("JUST-THE-PROMPT", argv)
 
 
+class TestTestShellArgv(unittest.TestCase):
+    def test_bash_when_available_any_platform(self):
+        self.assertEqual(
+            driver.test_shell_argv("pytest -q", windows=True, have_bash=True),
+            ["bash", "-lc", "pytest -q"],
+        )
+
+    def test_posix_always_uses_bash(self):
+        # Even if bash isn't probed/present, POSIX keeps bash -lc (error stays accurate).
+        self.assertEqual(
+            driver.test_shell_argv("make test", windows=False, have_bash=False),
+            ["bash", "-lc", "make test"],
+        )
+
+    def test_windows_without_bash_falls_back_to_cmd(self):
+        self.assertEqual(
+            driver.test_shell_argv("npm test", windows=True, have_bash=False),
+            ["cmd", "/c", "npm test"],
+        )
+
+
 class TestInstructionBuilders(unittest.TestCase):
     def setUp(self):
         # plan_instruction / triage_instruction branch on whether clarifications.md

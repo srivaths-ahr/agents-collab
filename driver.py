@@ -382,6 +382,21 @@ def staged_diff_against(baseline):
     return git("diff", "--cached", baseline)
 
 
+def test_shell_argv(cmd, *, windows=None, have_bash=None):
+    """Wrap a gate command for execution. Prefer `bash -lc` on every platform so one
+    --test-command stays portable across Mac/Linux/Windows; on Windows with no bash
+    on PATH (no Git Bash/WSL), fall back to `cmd /c` so the gate still runs — cmd.exe
+    shell semantics differ, so complex syntax may not behave the same. Pure: the
+    platform and bash probes are injectable for tests."""
+    if windows is None:
+        windows = _running_on_windows()
+    if have_bash is None:
+        have_bash = shutil.which("bash") is not None
+    if have_bash or not windows:
+        return ["bash", "-lc", cmd]
+    return ["cmd", "/c", cmd]
+
+
 def run_tests():
     """Run each configured gate in order; ALL must pass. Returns
     (ran: bool, passed: bool, output: str). The output's FIRST LINE is the overall
@@ -390,10 +405,17 @@ def run_tests():
     gates = [c for c in TEST_COMMANDS if c.strip()]
     if not gates:
         return False, True, "TESTS: SKIPPED\n(no test/gate command configured)"
+    have_bash = shutil.which("bash") is not None
+    if _running_on_windows() and not have_bash:
+        log(
+            "bash not on PATH — running the test gate via cmd.exe; shell-specific "
+            "syntax may differ. Install Git Bash or use WSL for parity.",
+            prefix="!",
+        )
     all_passed = True
     sections = []
     for cmd in gates:
-        rc, out, err = run(["bash", "-lc", cmd], timeout=CURSOR_TIMEOUT)
+        rc, out, err = run(test_shell_argv(cmd, have_bash=have_bash), timeout=CURSOR_TIMEOUT)
         passed = rc == 0
         all_passed = all_passed and passed
         sections.append(f"[{'PASS' if passed else 'FAIL'}] $ {cmd}\n{out}{err}")
@@ -996,7 +1018,8 @@ def dry_run():
     if gates:
         for cmd in gates:
             log(f"$ {cmd}")
-        log("ALL must pass; the verifier sees the combined result.")
+        shell = " ".join(test_shell_argv("CMD")[:-1])  # "bash -lc" or "cmd /c"
+        log(f"ALL must pass; each runs via `{shell}`; the verifier sees the result.")
     else:
         log("none configured — the verifier judges on the diff alone.", prefix="!")
 
