@@ -1,6 +1,6 @@
 # Security Policy
 
-`agentic-loop` runs autonomous AI coding agents against your repository with
+`agents-collab` runs autonomous AI coding agents against your repository with
 **file edits auto-approved and no human in the loop**. Treat it accordingly.
 
 ## Trust model — read before running

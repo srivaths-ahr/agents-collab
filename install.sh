@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# install.sh — drop agentic-loop into a target repository (or remove it again).
+# install.sh — drop agents-collab into a target repository (or remove it again).
 #
 # Install:
 #   ./install.sh ../path/to/target-repo
@@ -67,7 +67,7 @@ fi
 TARGET="$(cd "$TARGET" && pwd)"
 
 if [ "$SRC" = "$TARGET" ]; then
-  echo "error: target is the agentic-loop repo itself; pick the repo you want to work ON." >&2
+  echo "error: target is the agents-collab repo itself; pick the repo you want to work ON." >&2
   exit 1
 fi
 if [ ! -d "$TARGET/.git" ]; then
@@ -76,7 +76,7 @@ fi
 
 # ---------------------------------------------------------------------------
 install() {
-  echo "Installing agentic-loop -> $TARGET"
+  echo "Installing agents-collab -> $TARGET"
 
   # Tool files: overwrite on install/upgrade (these ARE the tool).
   cp "$SRC/driver.py" "$SRC/executors.py" "$TARGET/"
@@ -174,7 +174,7 @@ remove_user() {
 }
 
 uninstall() {
-  echo "Uninstalling agentic-loop from $TARGET"
+  echo "Uninstalling agents-collab from $TARGET"
   if [ "$DRY" = 1 ]; then
     echo "  (dry run — nothing will be deleted)"
   fi
@@ -213,7 +213,7 @@ uninstall() {
 
 if [ "$MODE" = uninstall ]; then
   if [ "$DRY" = 0 ] && [ -t 0 ]; then
-    printf "Remove agentic-loop from %s? [y/N] " "$TARGET"
+    printf "Remove agents-collab from %s? [y/N] " "$TARGET"
     read -r ans || ans=""
     case "$ans" in
       y|Y|yes|YES) ;;

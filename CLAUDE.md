@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`agentic-loop` is a single-purpose tool, not an application: a **plan → execute → verify**
+`agents-collab` is a single-purpose tool, not an application: a **plan → execute → verify**
 loop for autonomous code changes. It is a _template_ you copy into a target repo
 (`driver.py`, `executors.py`, `prompts/`, `AGENTS.md`) and run from that repo's root.
 Claude does the judgment work (clarify, plan, verify); a pluggable coding CLI does the

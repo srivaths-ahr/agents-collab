@@ -41,7 +41,7 @@ import time
 
 import executors  # executor adapter registry (the pluggable EXECUTE step)
 
-__version__ = "0.2.0"  # bump in CHANGELOG.md too; executor adapters drift over time
+__version__ = "0.2.1"  # bump in CHANGELOG.md too; executor adapters drift over time
 
 # ============================================================================
 # CONFIG — fill these before a run (all overridable via CLI flags below)
@@ -1261,7 +1261,7 @@ def parse_cli_overrides():
     global MAX_COST_USD, DRY_RUN
     global TASK_FILE, CONTEXT_FILE, WORK_DIR
     p = argparse.ArgumentParser(description="Agentic plan/execute/verify loop.")
-    p.add_argument("--version", action="version", version=f"agentic-loop {__version__}")
+    p.add_argument("--version", action="version", version=f"agents-collab {__version__}")
     p.add_argument(
         "command",
         nargs="?",

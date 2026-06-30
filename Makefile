@@ -1,4 +1,4 @@
-# agentic-loop — convenience targets. The tool itself is plain Python (stdlib
+# agents-collab — convenience targets. The tool itself is plain Python (stdlib
 # only); these are just shortcuts.
 
 PYTHON ?= python3

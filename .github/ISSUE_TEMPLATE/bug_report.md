@@ -27,4 +27,4 @@ python driver.py ...
 **Environment**
 - OS:
 - Python version (`python3 --version`):
-- agentic-loop version (`python3 driver.py --version`):
+- agents-collab version (`python3 driver.py --version`):

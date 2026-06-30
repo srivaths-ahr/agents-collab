@@ -10,6 +10,8 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-06-30
+
 ### Added
 
 - **`install.sh --uninstall` (and `make uninstall`).** Removes the tool from a
@@ -95,6 +97,9 @@ when an executor stops behaving.
 
 ### Changed
 
+- **Renamed the project `agentic-loop` → `agents-collab`** (matching the repo) for one
+  consistent name across `--version`, the installer messages, the Makefile, and the
+  docs. `python driver.py --version` now prints `agents-collab 0.2.1`.
 - **The clarity-gate halt now logs the absolute path** of the
   `clarifications_needed.json` it writes, instead of a bare filename. The file is
   written to the cwd after `os.chdir(REPO_ROOT)` and is gitignored, so a relative

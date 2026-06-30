@@ -71,11 +71,11 @@ judges the result the same way regardless of who wrote it.
 ## Run it yourself
 
 From a copy of this folder (the loop edits files and needs an isolated git repo, so
-don't run it inside the agentic-loop repo itself):
+don't run it inside the agents-collab repo itself):
 
 ```bash
 cp -r examples/romannumbers /tmp/romannumbers && cd /tmp/romannumbers
-../../path/to/agentic-loop/install.sh .   # drop the tool in (driver.py, prompts, …)
+../../path/to/agents-collab/install.sh .   # drop the tool in (driver.py, prompts, …)
 git init && git add -A && git commit -m baseline
 python driver.py doctor --executor cursor          # check your CLIs first
 python driver.py --executor cursor --impl-model composer-2.5 \

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in improving **agentic-loop**. This is a small,
+Thanks for your interest in improving **agents-collab**. This is a small,
 single-purpose tool; the bar for changes is "does it keep the loop simple,
 inspectable, and model-agnostic." Please read the design notes below before
 opening a PR — most of the value here is in _not_ over-building.

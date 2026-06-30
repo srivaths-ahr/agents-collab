@@ -1,7 +1,7 @@
 # Examples
 
 Worked examples of the loop, including the artifacts a real run produced — so you
-can see exactly what `agentic-loop` does before pointing it at your own repo.
+can see exactly what `agents-collab` does before pointing it at your own repo.
 
 | Example | What it shows |
 | --- | --- |
