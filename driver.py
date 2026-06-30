@@ -556,16 +556,38 @@ def verify_step(iteration, baseline):
     return verdict, res["cost"]
 
 
+def _extract_json_object(text):
+    """Pull the first balanced JSON object out of text that may be wrapped in prose
+    — for a model that narrates around the JSON ("All criteria pass.\n\n{...}")
+    despite the JSON-only contract. Tries each '{' as a start via raw_decode (which
+    ignores trailing text) and returns the first that decodes to an object, else
+    None. Pure."""
+    decoder = json.JSONDecoder()
+    idx = text.find("{")
+    while idx != -1:
+        try:
+            obj, _ = decoder.raw_decode(text[idx:])
+        except json.JSONDecodeError:
+            obj = None
+        if isinstance(obj, dict):
+            return obj
+        idx = text.find("{", idx + 1)
+    return None
+
+
 def parse_verdict(raw_result):
-    """Parse the verifier's raw stdout into a verdict dict: tolerate ```json
-    fences, require valid JSON carrying a 'status' field. Pure (no subprocess, no
-    file writes), so it can be unit-tested against sample and malformed output.
-    Raises StepError on anything malformed (the caller has already saved the raw
-    text to verify_raw.txt for inspection)."""
+    """Parse the verifier's raw stdout into a verdict dict: tolerate ```json fences
+    and a prose preamble/epilogue around the JSON (a strong verify model sometimes
+    narrates despite the JSON-only contract), require an object carrying a 'status'
+    field. Pure (no subprocess, no file writes), so it can be unit-tested against
+    sample and malformed output. Raises StepError on anything malformed (the caller
+    has already saved the raw text to verify_raw.txt for inspection)."""
     raw = strip_fences(raw_result)
     try:
         verdict = json.loads(raw)
     except json.JSONDecodeError:
+        verdict = _extract_json_object(raw)  # recover JSON wrapped in narration
+    if not isinstance(verdict, dict):
         raise StepError(
             f"verifier did not return valid JSON. Raw saved to {WORK_DIR}/verify_raw.txt"
         )

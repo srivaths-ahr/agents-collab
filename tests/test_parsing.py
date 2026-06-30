@@ -114,6 +114,28 @@ class TestParseVerdict(unittest.TestCase):
         with self.assertRaises(driver.StepError):
             driver.parse_verdict('{"criteria": [], "reasons": []}')
 
+    def test_prose_preamble_before_json(self):
+        # A strong verify model sometimes narrates before the JSON despite the
+        # JSON-only contract (observed with opus): recover the object anyway.
+        raw = 'All criteria are satisfied and tests pass.\n\n{"status": "pass", "criteria": []}'
+        v = driver.parse_verdict(raw)
+        self.assertEqual(v["status"], "pass")
+
+    def test_prose_around_json(self):
+        raw = 'Here is the verdict:\n{"status": "fail", "reasons": ["x"]}\nHope that helps!'
+        v = driver.parse_verdict(raw)
+        self.assertEqual(v["status"], "fail")
+        self.assertEqual(v["reasons"], ["x"])
+
+    def test_fenced_with_preamble(self):
+        raw = 'Summary line.\n```json\n{"status": "blocked"}\n```'
+        self.assertEqual(driver.parse_verdict(raw)["status"], "blocked")
+
+    def test_non_object_json_raises(self):
+        # Valid JSON that isn't an object (a bare array) is still malformed.
+        with self.assertRaises(driver.StepError):
+            driver.parse_verdict("[1, 2, 3]")
+
 
 class TestProgressFingerprint(unittest.TestCase):
     def test_deterministic(self):

@@ -31,6 +31,16 @@ when an executor stops behaving.
 
 ### Fixed
 
+- **Verifier verdict survives a prose preamble/epilogue around the JSON.** A strong
+  verify model (observed with `--verify-model opus`) sometimes narrates despite the
+  JSON-only contract — e.g. `All criteria are satisfied and tests pass.\n\n{...}` —
+  and `parse_verdict` (which only stripped ```` ``` ```` fences) failed with
+  `verifier did not return valid JSON`, reporting a **passing** run as `error`.
+  It now falls back to extracting the first balanced JSON object from the text (new
+  pure `_extract_json_object`, via `json.JSONDecoder().raw_decode`), and rejects
+  valid-but-non-object JSON explicitly. Not platform-specific. `verify.md` already
+  says "Output ONE JSON object and NOTHING else"; this hardens the parser for when a
+  model ignores it.
 - **Windows: the test gate no longer hard-requires `bash`.** `run_tests` shelled
   out to `bash -lc <cmd>` unconditionally, so on a Windows box without Git Bash/WSL
   the loop reached VERIFY and then died with `command not found: bash`. It now
