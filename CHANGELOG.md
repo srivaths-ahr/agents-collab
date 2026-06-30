@@ -10,6 +10,17 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+### Added
+
+- **`install.py` — a cross-platform installer.** Stdlib-only Python that does
+  everything `install.sh` did (copy tool files, seed `AGENTS.md`/`*.example` only if
+  absent, and the tiered, git-guarded `--uninstall` with `--dry-run`/`--force`), but
+  runs the same on Windows (cmd/PowerShell), macOS, and Linux — no bash needed, since
+  Python is already the one prerequisite. `install.sh` is now a thin shim that
+  forwards to it, so there's a single implementation; `make install`/`make uninstall`
+  call `install.py` directly. The guard decision (`removal_reason`) is pure and
+  unit-tested; the shipped prompt set is derived from `prompts/*.md`.
+
 ### Fixed
 
 - **Test gate falls back to `sh -c` on a bash-less POSIX host** (Alpine, distroless,
