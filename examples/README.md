@@ -10,5 +10,5 @@ can see exactly what `agents-collab` does before pointing it at your own repo.
 Each example keeps its inputs (`task.md`, `context.md`, the starting source, the
 test gate) and a `run/` directory with the captured outputs of an actual run
 (`plan.md`, the diff, `verdict.json`, test output). The tool itself is **not**
-copied in — run an example by dropping the loop in with `install.sh`, as each
+copied in — run an example by dropping the loop in with `install.py`, as each
 example's README explains.

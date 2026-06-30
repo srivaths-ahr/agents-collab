@@ -38,16 +38,13 @@ loop converges against objective, machine-checkable acceptance criteria.
 - **Claude Code** (`claude`) — used for clarify, plan, and verify.
 - **One executor CLI**, matching your chosen backend:
   `cursor-agent` · `claude` · `codex` · `agy` (Antigravity).
-- **macOS, Linux, or Windows.** The driver is portable, stdlib-only Python. The
-  only POSIX-shell assumption left is `install.sh` (a bash script). On **Windows**:
-  - **WSL** — a real Linux shell; `install.sh` and the full loop run unchanged.
-  - **Native (cmd/PowerShell)** — the loop itself runs. Use the GitHub-raw copy or
-    re-copy `driver.py`, `executors.py`, `prompts/` by hand (add `AGENTS.md` only for
-    the Codex/Cursor executor; the driver never reads it), since `install.sh` won't
-    run without bash. The **test gate** prefers `bash -lc` (so one `--test-command`
-    is portable), and falls back to `cmd /c` when `bash` isn't on `PATH` — so gates
-    run even on bare Windows, though cmd.exe shell syntax differs. Install **Git
-    Bash** (or use WSL) for exact parity with macOS/Linux test commands.
+- **macOS, Linux, or Windows.** Everything is portable, stdlib-only Python —
+  **including the installer** (`install.py`), so there's no bash needed to set up or
+  run the tool. On **Windows** the only nuance is the **test gate**: it prefers
+  `bash -lc` (so one `--test-command` stays portable) and falls back to `cmd /c` when
+  `bash` isn't on `PATH`, so gates still run on bare cmd/PowerShell — install **Git
+  Bash** or use **WSL** for exact parity with macOS/Linux test commands. (On a
+  bash-less Linux container — Alpine, distroless — the gate falls back to `sh -c`.)
 
 Each tool authenticates through its own login or environment variable. **No
 credentials are stored in this repo.**
@@ -62,18 +59,18 @@ once, then run the installer against your target repo:
 
 ```bash
 git clone https://github.com/srivaths-ahr/agents-collab
-./agents-collab/install.sh /path/to/your-repo
+python agents-collab/install.py /path/to/your-repo
 # or:  make -C agents-collab install TARGET=/path/to/your-repo
 ```
+
+`install.py` is stdlib-only Python, so it runs the same on **Windows
+(cmd/PowerShell), macOS, and Linux** — no bash required. (`./agents-collab/install.sh`
+still works too; it's a thin bash shim that forwards to `install.py`.)
 
 The installer copies the tool files (`driver.py`, `executors.py`, `prompts/`) and
 seeds `AGENTS.md` + the `*.example` files **only if absent** — re-run it to upgrade
 without clobbering your standing rules or an in-progress task. Prefer to do it by
 hand? Copy `{driver.py,executors.py,prompts,AGENTS.md}` into the repo yourself.
-
-**On Windows**, `install.sh` is bash-only — use WSL, or copy the files in by hand;
-the loop itself runs natively. See [Requirements](#requirements) for the caveats
-(the test gate prefers `bash`, falling back to `cmd /c` without it).
 
 Run the loop from inside that repo (the prompt files are read by relative path).
 
@@ -82,8 +79,8 @@ Run the loop from inside that repo (the prompt files are read by relative path).
 To remove the tool again, run the installer in reverse from the same clone:
 
 ```bash
-./agents-collab/install.sh --uninstall --dry-run /path/to/your-repo  # preview, delete nothing
-./agents-collab/install.sh --uninstall /path/to/your-repo            # apply
+python agents-collab/install.py --uninstall --dry-run /path/to/your-repo  # preview, delete nothing
+python agents-collab/install.py --uninstall /path/to/your-repo            # apply
 # or:  make -C agents-collab uninstall TARGET=/path/to/your-repo ARGS=--dry-run
 ```
 
@@ -416,7 +413,7 @@ prompts/
   execute.md         instruction handed to the executor
   verify.md          verifier contract + verdict.json schema
 AGENTS.md            standing rules auto-loaded by Cursor / Codex executors
-install.sh · Makefile   drop the tool into a target repo (or --uninstall it)
+install.py · install.sh · Makefile   drop the tool into a target repo (or --uninstall it)
 examples/            worked runs with committed plan/diff/verdict artifacts
 tests/               stdlib unittest suite (pure logic; no dependencies)
 verdict.sample.json  example verifier output

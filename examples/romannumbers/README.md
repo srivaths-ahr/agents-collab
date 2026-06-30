@@ -75,7 +75,7 @@ don't run it inside the agents-collab repo itself):
 
 ```bash
 cp -r examples/romannumbers /tmp/romannumbers && cd /tmp/romannumbers
-../../path/to/agents-collab/install.sh .   # drop the tool in (driver.py, prompts, …)
+python ../../path/to/agents-collab/install.py .   # drop the tool in (driver.py, prompts, …)
 git init && git add -A && git commit -m baseline
 python driver.py doctor --executor cursor          # check your CLIs first
 python driver.py --executor cursor --impl-model composer-2.5 \

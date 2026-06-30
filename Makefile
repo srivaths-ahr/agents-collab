@@ -16,17 +16,17 @@ install:
 	@if [ -z "$(TARGET)" ]; then \
 		echo "usage: make install TARGET=../path/to/repo"; exit 1; \
 	fi
-	@./install.sh "$(TARGET)"
+	@$(PYTHON) install.py "$(TARGET)"
 
 # Pass extra flags through ARGS, e.g.: make uninstall TARGET=../repo ARGS=--dry-run
 uninstall:
 	@if [ -z "$(TARGET)" ]; then \
 		echo "usage: make uninstall TARGET=../path/to/repo [ARGS=--dry-run]"; exit 1; \
 	fi
-	@./install.sh --uninstall $(ARGS) "$(TARGET)"
+	@$(PYTHON) install.py --uninstall $(ARGS) "$(TARGET)"
 
 check: test
-	$(PYTHON) -m py_compile driver.py executors.py
+	$(PYTHON) -m py_compile driver.py executors.py install.py
 	@echo "compile OK"
 
 test:
