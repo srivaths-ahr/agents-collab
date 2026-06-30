@@ -384,17 +384,20 @@ def staged_diff_against(baseline):
 
 def test_shell_argv(cmd, *, windows=None, have_bash=None):
     """Wrap a gate command for execution. Prefer `bash -lc` on every platform so one
-    --test-command stays portable across Mac/Linux/Windows; on Windows with no bash
-    on PATH (no Git Bash/WSL), fall back to `cmd /c` so the gate still runs — cmd.exe
-    shell semantics differ, so complex syntax may not behave the same. Pure: the
-    platform and bash probes are injectable for tests."""
+    --test-command stays portable; when bash isn't on PATH, fall back to the
+    platform's always-present shell so the gate still runs: `cmd /c` on Windows (no
+    Git Bash/WSL), `sh -c` on a bash-less POSIX host (Alpine, distroless, busybox).
+    Those shells' semantics differ from bash, so complex syntax may not behave the
+    same. Pure: the platform and bash probes are injectable for tests."""
     if windows is None:
         windows = _running_on_windows()
     if have_bash is None:
         have_bash = shutil.which("bash") is not None
-    if have_bash or not windows:
+    if have_bash:
         return ["bash", "-lc", cmd]
-    return ["cmd", "/c", cmd]
+    if windows:
+        return ["cmd", "/c", cmd]
+    return ["sh", "-c", cmd]
 
 
 def run_tests():
@@ -406,10 +409,12 @@ def run_tests():
     if not gates:
         return False, True, "TESTS: SKIPPED\n(no test/gate command configured)"
     have_bash = shutil.which("bash") is not None
-    if _running_on_windows() and not have_bash:
+    if not have_bash:
+        via = "cmd.exe" if _running_on_windows() else "sh"
+        fix = "Install Git Bash or use WSL" if _running_on_windows() else "Install bash"
         log(
-            "bash not on PATH — running the test gate via cmd.exe; shell-specific "
-            "syntax may differ. Install Git Bash or use WSL for parity.",
+            f"bash not on PATH — running the test gate via {via}; shell-specific "
+            f"syntax may differ. {fix} for parity.",
             prefix="!",
         )
     all_passed = True
@@ -1040,7 +1045,7 @@ def dry_run():
     if gates:
         for cmd in gates:
             log(f"$ {cmd}")
-        shell = " ".join(test_shell_argv("CMD")[:-1])  # "bash -lc" or "cmd /c"
+        shell = " ".join(test_shell_argv("CMD")[:-1])  # "bash -lc" / "cmd /c" / "sh -c"
         log(f"ALL must pass; each runs via `{shell}`; the verifier sees the result.")
     else:
         log("none configured — the verifier judges on the diff alone.", prefix="!")

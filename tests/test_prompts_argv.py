@@ -151,11 +151,17 @@ class TestTestShellArgv(unittest.TestCase):
             ["bash", "-lc", "pytest -q"],
         )
 
-    def test_posix_always_uses_bash(self):
-        # Even if bash isn't probed/present, POSIX keeps bash -lc (error stays accurate).
+    def test_posix_with_bash_uses_bash(self):
+        self.assertEqual(
+            driver.test_shell_argv("make test", windows=False, have_bash=True),
+            ["bash", "-lc", "make test"],
+        )
+
+    def test_posix_without_bash_falls_back_to_sh(self):
+        # Alpine / distroless / busybox ship only /bin/sh — the gate still runs.
         self.assertEqual(
             driver.test_shell_argv("make test", windows=False, have_bash=False),
-            ["bash", "-lc", "make test"],
+            ["sh", "-c", "make test"],
         )
 
     def test_windows_without_bash_falls_back_to_cmd(self):
