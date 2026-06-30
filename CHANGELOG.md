@@ -10,6 +10,23 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Test gate falls back to `sh -c` on a bash-less POSIX host** (Alpine, distroless,
+  busybox), mirroring the `cmd /c` fallback already used on Windows. `run_tests`
+  previously always shelled out to `bash -lc` on POSIX, so a `--test-command` on a
+  bash-less Linux died with `command not found: bash`. Shell preference is now
+  bash → (`cmd.exe` on Windows | `sh` on POSIX), and the missing-bash note names the
+  shell actually used.
+
+### Changed
+
+- **CI runs across ubuntu, windows, and macos** (was ubuntu-only). The byte-compile
+  and unit tests now run on all three, so the cmd.exe / `PATH` / encoding class of
+  platform regression fixed in 0.2.1 is caught automatically rather than by a human
+  tester. (macOS skips py3.8/3.9, which arm64 runners don't provide; both stay
+  covered on ubuntu + windows.)
+
 ## [0.2.1] — 2026-06-30
 
 ### Added
