@@ -12,6 +12,17 @@ when an executor stops behaving.
 
 ### Added
 
+- **`install.sh --uninstall` (and `make uninstall`).** Removes the tool from a
+  target repo as the inverse of install, in tiers: tool files (`driver.py`,
+  `executors.py`, the shipped `prompts/*.md`, `__pycache__`) and generated artifacts
+  (`.loop/`, `plan.md`, `verdict.json`, `clarifications_needed.json`) go outright;
+  user content (`AGENTS.md`, `task.md`, `context.md`, `clarifications.md`, the
+  `*.example` seeds) is **guarded** — deleted only when byte-identical to the seed or
+  git-tracked-and-clean (recoverable via `git restore`), otherwise kept and reported.
+  `--dry-run` previews without deleting; `--force` overrides the guard. The installer
+  is deliberately asymmetric (seed-if-absent, never-clobber), so the uninstall refuses
+  to destroy modified or untracked work by default. The file list is shared with
+  install — the shipped prompt set is derived from `prompts/*.md`, not hardcoded.
 - **`--clarify-model` flag.** The clarity gate's model was hardcoded to `haiku`
   (the `CLARIFY_MODEL_NAME` module constant) with no way to override it per run,
   unlike `--plan-model` and `--verify-model`. It now has a matching flag, wired the
