@@ -79,6 +79,25 @@ see [Requirements](#requirements) for the caveats (the test gate still needs `ba
 
 Run the loop from inside that repo (the prompt files are read by relative path).
 
+### Uninstall
+
+To remove the tool again, run the installer in reverse from the same clone:
+
+```bash
+./agents-collab/install.sh --uninstall --dry-run /path/to/your-repo  # preview, delete nothing
+./agents-collab/install.sh --uninstall /path/to/your-repo            # apply
+# or:  make -C agents-collab uninstall TARGET=/path/to/your-repo ARGS=--dry-run
+```
+
+It removes the tool files (`driver.py`, `executors.py`, the shipped `prompts/*.md`,
+`__pycache__`) and the generated artifacts (`.loop/`, `plan.md`, `verdict.json`,
+`clarifications_needed.json`) outright. Your content — `AGENTS.md`, `task.md`,
+`context.md`, `clarifications.md`, the `*.example` files — is **guarded**: it's
+removed only when safe to (byte-identical to the seed, or git-tracked and clean so
+`git restore` brings it back). Anything modified or untracked is **kept** and
+reported, so unrecoverable work is never silently destroyed; pass `--force` to
+remove those too. Always preview with `--dry-run` first.
+
 ## Quickstart
 
 ```bash
@@ -399,7 +418,7 @@ prompts/
   execute.md         instruction handed to the executor
   verify.md          verifier contract + verdict.json schema
 AGENTS.md            standing rules auto-loaded by Cursor / Codex executors
-install.sh · Makefile   drop the tool into a target repo
+install.sh · Makefile   drop the tool into a target repo (or --uninstall it)
 examples/            worked runs with committed plan/diff/verdict artifacts
 tests/               stdlib unittest suite (pure logic; no dependencies)
 verdict.sample.json  example verifier output
