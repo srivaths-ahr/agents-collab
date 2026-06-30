@@ -10,6 +10,8 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-06-30
+
 ### Added
 
 - **`install.py` — a cross-platform installer.** Stdlib-only Python that does
