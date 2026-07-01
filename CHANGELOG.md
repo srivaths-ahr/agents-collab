@@ -10,6 +10,16 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+### Added
+
+- **`make release VERSION=X.Y.Z`.** Automates the mechanical half of a release: runs
+  the tests, bumps `driver.py`'s `__version__`, turns the CHANGELOG's `[Unreleased]`
+  section into a dated `[VERSION]` one (leaving a fresh empty `[Unreleased]`), then
+  commits and tags `vVERSION`. It deliberately **stops before pushing** — the push
+  and the GitHub release (with your own notes) stay manual, and the commands are
+  printed. Refuses on a dirty tree, off `main`, a bad/duplicate version, or an empty
+  `[Unreleased]`, and leaves the repo untouched when it refuses.
+
 ## [0.3.1] — 2026-07-01
 
 ### Fixed
