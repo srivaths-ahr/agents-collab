@@ -10,6 +10,8 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-07-01
+
 ### Fixed
 
 - **Uninstall no longer deletes your pre-existing files.** The guarded uninstall

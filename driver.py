@@ -41,7 +41,7 @@ import time
 
 import executors  # executor adapter registry (the pluggable EXECUTE step)
 
-__version__ = "0.3.0"  # bump in CHANGELOG.md too; executor adapters drift over time
+__version__ = "0.3.1"  # bump in CHANGELOG.md too; executor adapters drift over time
 
 # ============================================================================
 # CONFIG — fill these before a run (all overridable via CLI flags below)
