@@ -10,6 +10,8 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-07-01
+
 ### Added
 
 - **Interactive `run` now walks you through all five models + the executor.** The
