@@ -94,10 +94,11 @@ It removes the tool files (`driver.py`, `executors.py`, the shipped `prompts/*.m
 `__pycache__`) and the generated artifacts (`.loop/`, `plan.md`, `verdict.json`,
 `clarifications_needed.json`) outright. Your content — `AGENTS.md`, `task.md`,
 `context.md`, `clarifications.md`, the `*.example` files — is **guarded**: it's
-removed only when safe to (byte-identical to the seed, or git-tracked and clean so
-`git restore` brings it back). Anything modified or untracked is **kept** and
-reported, so unrecoverable work is never silently destroyed; pass `--force` to
-remove those too. Always preview with `--dry-run` first.
+removed only when it's **byte-identical to what the tool seeded** (an untouched
+copy). Anything you wrote or changed — including a pre-existing `AGENTS.md` you had
+before installing — is **kept** and reported, so your own work is never deleted by
+surprise (being merely committed is *not* reason enough to remove it). Pass
+`--force` to remove your content too. Always preview with `--dry-run` first.
 
 ## Quickstart
 

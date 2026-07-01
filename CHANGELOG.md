@@ -12,6 +12,15 @@ when an executor stops behaving.
 
 ### Fixed
 
+- **Uninstall no longer deletes your pre-existing files.** The guarded uninstall
+  removed any user file that was git-tracked-and-clean ("recoverable"). But
+  git-clean can't tell the tool's file from your own: a `AGENTS.md` you had *before*
+  installing (install seeds it only if absent, so it may never have been ours) is
+  committed-and-unmodified, so uninstall deleted it — you had to `git restore` your
+  own file. A guarded user file is now removed **only when it's byte-identical to the
+  tool's seed** (an untouched copy) or with `--force`. Files with no seed —
+  `task.md`, `context.md`, `clarifications.md` — are removed only with `--force`.
+  Tool files and generated artifacts are unaffected (still removed outright).
 - **The loop no longer stages the tool's own files into your repo.** The verifier's
   diff is built with `git add -A` (to capture files the executor creates), which also
   swept up `driver.py`, `executors.py`, `prompts/`, and the per-run artifacts — so

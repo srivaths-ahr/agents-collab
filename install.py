@@ -23,10 +23,13 @@ rules or an in-progress task). Idempotent: safe to re-run to upgrade.
 Uninstall removes, in tiers:
   tool      — driver.py, executors.py, the shipped prompts/*.md, __pycache__
   artifacts — .loop/, plan.md, verdict.json, clarifications_needed.json
-  user      — AGENTS.md, task.md, context.md, clarifications.md, *.example,
-              but ONLY when recoverable (git-tracked & clean) or untouched
-              (byte-identical to the seed). Modified/untracked files are KEPT
-              unless --force, so unrecoverable work is never silently destroyed.
+  user      — AGENTS.md, task.md, context.md, clarifications.md, *.example, but
+              ONLY when byte-identical to the seed (an untouched tool copy) or
+              --force. A merely git-tracked-and-clean file is KEPT: it may be the
+              user's own (a pre-existing AGENTS.md, say — install seeds only if
+              absent, so it may never have been ours), and deleting that, even
+              recoverably, is a nasty surprise. Files with no seed (task.md,
+              context.md, clarifications.md) are therefore removed only with --force.
 
 Git hygiene: on install we add a managed block to the target's .git/info/exclude
 (not the tracked .gitignore, so there's no visible change to commit) listing the
@@ -80,17 +83,18 @@ EXCLUDE_END = "# <<< agents-collab <<<"
 
 
 # ---- pure decision logic (unit-tested; no I/O) -----------------------------
-def removal_reason(*, force, matches_seed, git_clean):
-    """Why a guarded user file may be removed, or '' to KEEP it. Pure: the three
-    inputs are booleans computed by the I/O probes below. Priority mirrors the
-    installer's asymmetric, never-clobber contract — an explicit --force first,
-    then an untouched seed, then a git-clean (recoverable) file."""
+def removal_reason(*, force, matches_seed):
+    """Why a guarded user file may be removed, or '' to KEEP it. Pure. Only two
+    signals reliably mean "the tool owns this file, safe to delete": an explicit
+    --force, or a byte-match against the seed (an untouched tool copy). We do NOT
+    remove a merely git-tracked-and-clean file: being committed-and-unmodified can't
+    distinguish the tool's file from a user's OWN pre-existing one (e.g. an AGENTS.md
+    they had before installing — install seeds it only if absent, so it may never
+    have been ours), and deleting that, even recoverably, is a nasty surprise."""
     if force:
         return "--force"
     if matches_seed:
         return "untouched seed"
-    if git_clean:
-        return "git-clean (recoverable)"
     return ""
 
 
@@ -158,30 +162,6 @@ def _matches_seed(abs_path, seed):
     if not (os.path.isfile(seed_path) and os.path.isfile(abs_path)):
         return False
     return filecmp.cmp(abs_path, seed_path, shallow=False)
-
-
-def _git_tracked_clean(target, rel):
-    """True if rel is git-tracked in target with no staged/unstaged changes, i.e. a
-    deletion is recoverable via `git restore`. git uses forward-slash pathspecs on
-    every platform, so rel passes through directly."""
-    if not os.path.isdir(os.path.join(target, ".git")):
-        return False
-
-    def ok(*args):
-        return (
-            subprocess.run(
-                ["git", "-C", target, *args],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            ).returncode
-            == 0
-        )
-
-    return (
-        ok("ls-files", "--error-unmatch", "--", rel)
-        and ok("diff", "--quiet", "--", rel)
-        and ok("diff", "--cached", "--quiet", "--", rel)
-    )
 
 
 def _exclude_patterns():
@@ -311,16 +291,16 @@ def _rmdir_if_empty(target, rel, dry):
 
 
 def _remove_user(target, rel, seed, dry, force):
-    """Remove a guarded user file ONLY if safe (untouched seed, git-clean, or
-    --force); otherwise KEEP it — never destroy unrecoverable work silently. Returns
-    the rel if it deleted the file, else None."""
+    """Remove a guarded user file ONLY if it's an untouched tool seed or --force;
+    otherwise KEEP it — never delete the user's own or customized content (a merely
+    committed file is NOT reason enough; see removal_reason). Returns the rel if it
+    deleted the file, else None."""
     abs_path = _ospath(target, rel)
     if not os.path.lexists(abs_path):
         return None
     why = removal_reason(
         force=force,
         matches_seed=_matches_seed(abs_path, seed),
-        git_clean=_git_tracked_clean(target, rel),
     )
     if why:
         if dry:
@@ -331,7 +311,7 @@ def _remove_user(target, rel, seed, dry, force):
         return rel
     print(
         f"  · KEPT        {rel}   "
-        "(modified/untracked — not recoverable; use --force)"
+        "(your content — not an untouched tool copy; use --force to remove)"
     )
     return None
 

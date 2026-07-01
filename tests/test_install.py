@@ -15,45 +15,32 @@ import install  # noqa: E402
 
 class TestRemovalReason(unittest.TestCase):
     def test_keep_when_nothing_qualifies(self):
+        # A user file that is neither an untouched seed nor forced is KEPT — even if
+        # it happens to be git-tracked & clean. git-state is no longer a signal,
+        # because it can't tell the tool's file from the user's pre-existing one.
         self.assertEqual(
-            install.removal_reason(force=False, matches_seed=False, git_clean=False),
-            "",
+            install.removal_reason(force=False, matches_seed=False), ""
         )
 
     def test_force(self):
         self.assertEqual(
-            install.removal_reason(force=True, matches_seed=False, git_clean=False),
-            "--force",
+            install.removal_reason(force=True, matches_seed=False), "--force"
         )
 
     def test_untouched_seed(self):
         self.assertEqual(
-            install.removal_reason(force=False, matches_seed=True, git_clean=False),
-            "untouched seed",
+            install.removal_reason(force=False, matches_seed=True), "untouched seed"
         )
 
-    def test_git_clean(self):
+    def test_force_wins_over_seed(self):
         self.assertEqual(
-            install.removal_reason(force=False, matches_seed=False, git_clean=True),
-            "git-clean (recoverable)",
+            install.removal_reason(force=True, matches_seed=True), "--force"
         )
 
-    def test_force_wins_over_seed_and_git(self):
-        self.assertEqual(
-            install.removal_reason(force=True, matches_seed=True, git_clean=True),
-            "--force",
-        )
-
-    def test_seed_wins_over_git(self):
-        self.assertEqual(
-            install.removal_reason(force=False, matches_seed=True, git_clean=True),
-            "untouched seed",
-        )
-
-    def test_any_qualifier_removes(self):
-        # Removed iff the reason is non-empty.
-        for f, s, g in [(True, False, False), (False, True, False), (False, False, True)]:
-            self.assertTrue(install.removal_reason(force=f, matches_seed=s, git_clean=g))
+    def test_removed_iff_reason_nonempty(self):
+        self.assertTrue(install.removal_reason(force=True, matches_seed=False))
+        self.assertTrue(install.removal_reason(force=False, matches_seed=True))
+        self.assertFalse(install.removal_reason(force=False, matches_seed=False))
 
 
 class TestFileLists(unittest.TestCase):
