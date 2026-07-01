@@ -144,15 +144,27 @@ class NeedsClarification(Exception):
         super().__init__("task needs clarification before planning")
 
 
+# Optional ANSI colour for the terminal — off when stdout isn't a TTY or NO_COLOR is
+# set, so piped/captured output stays plain (file writes never go through here).
+# Cosmetic only; computed once since stdout doesn't change under us.
+_USE_COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+_PREFIX_COLOR = {"✓": "32", "✗": "31", "!": "33", "↻": "36", "±": "35"}
+
+
+def _c(text, code):
+    return f"\033[{code}m{text}\033[0m" if (_USE_COLOR and code) else text
+
+
 def log(msg, *, prefix="·"):
     ts = time.strftime("%H:%M:%S")
-    print(f"[{ts}] {prefix} {msg}", flush=True)
+    print(f"[{ts}] {_c(prefix, _PREFIX_COLOR.get(prefix))} {msg}", flush=True)
 
 
 def banner(text):
-    print("\n" + "=" * 72, flush=True)
-    print(f"  {text}", flush=True)
-    print("=" * 72, flush=True)
+    rule = "=" * 72
+    print("\n" + _c(rule, "36"), flush=True)
+    print(f"  {_c(text, '1')}", flush=True)
+    print(_c(rule, "36"), flush=True)
 
 
 def read_file(path):
@@ -382,6 +394,19 @@ def staged_diff_against(baseline):
     return git("diff", "--cached", baseline)
 
 
+def changed_files(baseline):
+    """(status, path) for everything staged vs baseline — the files the executor has
+    touched this run. Reuses the index `staged_diff_against` already populated (call
+    it after that). Rename lines (R100\\told\\tnew) collapse to (status, new-path)."""
+    out = git("diff", "--cached", "--name-status", baseline).strip()
+    rows = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            rows.append((parts[0], parts[-1]))
+    return rows
+
+
 def test_shell_argv(cmd, *, windows=None, have_bash=None):
     """Wrap a gate command for execution. Prefer `bash -lc` on every platform so one
     --test-command stays portable; when bash isn't on PATH, fall back to the
@@ -531,6 +556,12 @@ def verify_step(iteration, baseline):
 
     diff = staged_diff_against(baseline)
     write_file(os.path.join(WORK_DIR, "diff.patch"), diff)
+
+    changed = changed_files(baseline)
+    if changed:
+        shown = "  ".join(f"{s} {p}" for s, p in changed[:12])
+        extra = f"  (+{len(changed) - 12} more)" if len(changed) > 12 else ""
+        log(f"files changed ({len(changed)}): {shown}{extra}", prefix="±")
 
     ran, passed, test_out = run_tests()
     write_file(os.path.join(WORK_DIR, "test_output.txt"), test_out)
@@ -1090,6 +1121,12 @@ def main():
 
     baseline = capture_baseline()
     log(f"baseline commit: {baseline[:10]}  | max_iterations={MAX_ITERATIONS}")
+    cap = f"${MAX_COST_USD:.2f}" if MAX_COST_USD > 0 else "none"
+    log(
+        f"models: clarify={CLARIFY_MODEL_NAME} plan={PLAN_CLAUDE_MODEL_NAME} "
+        f"verify={VERIFICATION_CLAUDE_MODEL_NAME}  |  executor="
+        f"{EXECUTOR_BACKEND}:{IMPLEMENTATION_MODEL_NAME}  |  cost cap={cap}"
+    )
 
     prev_verdict = None
     last_stall = None
@@ -1108,6 +1145,10 @@ def main():
             total_cost += execute_step(it)
             verdict, vcost = verify_step(it, baseline)
             total_cost += vcost
+            log(
+                f"cumulative Claude spend: ${total_cost:.4f}"
+                + (f" / ${MAX_COST_USD:.2f} cap" if MAX_COST_USD > 0 else "")
+            )
         except StepError as e:
             banner("STOPPED — hard failure")
             log(str(e), prefix="✗")
@@ -1183,22 +1224,79 @@ def resolve_number(raw, default, *, cast, minimum):
     return val if val >= minimum else None
 
 
+def resolve_model(raw, suggestions, default):
+    """Parse a model-picker answer. Pure (no I/O) so it's unit-tested. Unlike
+    resolve_choice, ANY typed string is accepted (a model may be a pinned id not in
+    the suggestion list). Empty -> default; a 1-based index into suggestions -> that
+    model; an out-of-range number -> None (re-ask); any other text -> that slug."""
+    raw = raw.strip()
+    if not raw:
+        return default
+    if raw.isdigit():
+        i = int(raw)
+        return suggestions[i - 1] if 1 <= i <= len(suggestions) else None
+    return raw
+
+
 def _interactive():
     """True only when we can both ask and be answered — never prompt a headless/CI
     run (it would block on input that never comes, the very hang we avoid elsewhere)."""
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def prompt_run_settings(a, *, executor_default, impl_default, iter_default, cost_default):
-    """For an interactive `run`, ask for any of the four run knobs NOT passed on the
-    CLI; a flag the user did pass is kept as-is. Returns (executor, impl_model,
-    max_iter, max_cost). I/O layer only — parsing lives in the pure resolve_* helpers."""
+# Suggested Claude models offered as a numbered menu in the interactive wizard; any
+# other slug (e.g. a pinned id) can still be typed. Not exhaustive by design.
+CLAUDE_MODEL_CHOICES = ["opus", "sonnet", "haiku"]
+
+
+def prompt_run_settings(
+    a,
+    *,
+    executor_default,
+    impl_default,
+    iter_default,
+    cost_default,
+    clarify_default,
+    plan_default,
+    verify_default,
+):
+    """For an interactive `run`, ask for any knob NOT passed on the CLI (a flag the
+    user did pass is kept as-is). Walks the pipeline: clarify/plan models, executor +
+    its model, verify model, then the iteration/cost caps. Returns a settings dict.
+    I/O layer only — parsing lives in the pure resolve_* helpers."""
     shown = [False]
 
     def intro():
         if not shown[0]:
             print("\nSome run settings weren't passed — choose them (Enter = [default]):")
             shown[0] = True
+
+    def ask_model(label, default):
+        intro()
+        print(f"\n  {label}:")
+        for i, m in enumerate(CLAUDE_MODEL_CHOICES, 1):
+            print(f"    {i}) {m}" + ("   (default)" if m == default else ""))
+        picked = None
+        while picked is None:
+            picked = resolve_model(
+                input(
+                    f"  choice [1-{len(CLAUDE_MODEL_CHOICES)} or a model slug, "
+                    f"Enter={default}]: "
+                ),
+                CLAUDE_MODEL_CHOICES,
+                default,
+            )
+            if picked is None:
+                print("    pick a listed number or type a model slug.")
+        return picked
+
+    clarify_model = a.clarify_model
+    if clarify_model is None:
+        clarify_model = ask_model("Clarify-gate model", clarify_default)
+
+    plan_model = a.plan_model
+    if plan_model is None:
+        plan_model = ask_model("Plan model", plan_default)
 
     executor = a.executor
     if executor is None:
@@ -1221,6 +1319,10 @@ def prompt_run_settings(a, *, executor_default, impl_default, iter_default, cost
         intro()
         suggested = executors.SUGGESTED_IMPL_MODELS.get(executor, impl_default)
         impl_model = input(f"  Model slug for '{executor}' [Enter={suggested}]: ").strip() or suggested
+
+    verify_model = a.verify_model
+    if verify_model is None:
+        verify_model = ask_model("Verify model", verify_default)
 
     max_iter = a.max_iterations
     if max_iter is None:
@@ -1248,18 +1350,28 @@ def prompt_run_settings(a, *, executor_default, impl_default, iter_default, cost
             if max_cost is None:
                 print("    enter a non-negative number.")
 
-    return executor, impl_model, max_iter, max_cost
+    return {
+        "clarify_model": clarify_model,
+        "plan_model": plan_model,
+        "executor": executor,
+        "impl_model": impl_model,
+        "verify_model": verify_model,
+        "max_iter": max_iter,
+        "max_cost": max_cost,
+    }
 
 
 def parse_cli_overrides():
     """Let the three model variables (and a couple of knobs) be set at launch
     without editing the file. Returns the optional subcommand ('doctor' or None).
 
-    `--executor`/`--impl-model`/`--max-iterations`/`--max-cost-usd` default to None so
-    we can tell "unset" from "set to the default value": when unset on an interactive
-    `run`, we prompt for them; otherwise we fall back to the module-constant defaults
-    (so headless/CI runs and the documented multi-unit loop — which passes them — are
-    unchanged and never block on input)."""
+    The model flags (`--clarify-model`/`--plan-model`/`--verify-model`) and the run
+    knobs (`--executor`/`--impl-model`/`--max-iterations`/`--max-cost-usd`) all default
+    to None so we can tell "unset" from "set to the default value": when unset on an
+    interactive `run`, we prompt for them (prompt_run_settings walks the whole
+    pipeline); otherwise we fall back to the module-constant defaults (so headless/CI
+    runs and the documented multi-unit loop — which passes them — are unchanged and
+    never block on input)."""
     global PLAN_CLAUDE_MODEL_NAME, CLARIFY_MODEL_NAME, IMPLEMENTATION_MODEL_NAME
     global EXECUTOR_BACKEND
     global VERIFICATION_CLAUDE_MODEL_NAME, MAX_ITERATIONS, TEST_COMMANDS, REPO_ROOT
@@ -1281,8 +1393,16 @@ def parse_cli_overrides():
         help="print the exact commands and prompts each step would issue, then "
         "exit — no Claude calls, no executor, no edits, no spend.",
     )
-    p.add_argument("--clarify-model", default=CLARIFY_MODEL_NAME)
-    p.add_argument("--plan-model", default=PLAN_CLAUDE_MODEL_NAME)
+    p.add_argument(
+        "--clarify-model",
+        default=None,
+        help="Claude model for the clarity gate (prompts if omitted on an interactive run)",
+    )
+    p.add_argument(
+        "--plan-model",
+        default=None,
+        help="Claude model for planning (prompts if omitted on an interactive run)",
+    )
     p.add_argument(
         "--executor",
         default=None,
@@ -1296,7 +1416,11 @@ def parse_cli_overrides():
         help="executor model slug for the chosen --executor "
         "(prompts if omitted on an interactive run)",
     )
-    p.add_argument("--verify-model", default=VERIFICATION_CLAUDE_MODEL_NAME)
+    p.add_argument(
+        "--verify-model",
+        default=None,
+        help="Claude model for verification (prompts if omitted on an interactive run)",
+    )
     p.add_argument(
         "--max-iterations",
         type=int,
@@ -1336,23 +1460,38 @@ def parse_cli_overrides():
         "so a loop's per-unit artifacts don't overwrite each other.",
     )
     a = p.parse_args()
-    CLARIFY_MODEL_NAME = a.clarify_model
-    PLAN_CLAUDE_MODEL_NAME = a.plan_model
-    VERIFICATION_CLAUDE_MODEL_NAME = a.verify_model
 
-    # The four prompt-able knobs: a passed flag always wins; otherwise ask on an
-    # interactive `run`, else keep the module-constant default (unchanged headless).
+    # Every model + run knob defaults to None so we can tell "unset" from "set to the
+    # default": on an interactive `run` we prompt for the unset ones; otherwise each
+    # falls back to its module-constant default (headless/CI/--dry-run never block).
     if a.command == "run" and not a.dry_run and _interactive():
-        EXECUTOR_BACKEND, IMPLEMENTATION_MODEL_NAME, MAX_ITERATIONS, MAX_COST_USD = (
-            prompt_run_settings(
-                a,
-                executor_default=EXECUTOR_BACKEND,
-                impl_default=IMPLEMENTATION_MODEL_NAME,
-                iter_default=MAX_ITERATIONS,
-                cost_default=MAX_COST_USD,
-            )
+        s = prompt_run_settings(
+            a,
+            executor_default=EXECUTOR_BACKEND,
+            impl_default=IMPLEMENTATION_MODEL_NAME,
+            iter_default=MAX_ITERATIONS,
+            cost_default=MAX_COST_USD,
+            clarify_default=CLARIFY_MODEL_NAME,
+            plan_default=PLAN_CLAUDE_MODEL_NAME,
+            verify_default=VERIFICATION_CLAUDE_MODEL_NAME,
         )
+        CLARIFY_MODEL_NAME = s["clarify_model"]
+        PLAN_CLAUDE_MODEL_NAME = s["plan_model"]
+        VERIFICATION_CLAUDE_MODEL_NAME = s["verify_model"]
+        EXECUTOR_BACKEND = s["executor"]
+        IMPLEMENTATION_MODEL_NAME = s["impl_model"]
+        MAX_ITERATIONS = s["max_iter"]
+        MAX_COST_USD = s["max_cost"]
     else:
+        CLARIFY_MODEL_NAME = (
+            a.clarify_model if a.clarify_model is not None else CLARIFY_MODEL_NAME
+        )
+        PLAN_CLAUDE_MODEL_NAME = (
+            a.plan_model if a.plan_model is not None else PLAN_CLAUDE_MODEL_NAME
+        )
+        VERIFICATION_CLAUDE_MODEL_NAME = (
+            a.verify_model if a.verify_model is not None else VERIFICATION_CLAUDE_MODEL_NAME
+        )
         EXECUTOR_BACKEND = a.executor if a.executor is not None else EXECUTOR_BACKEND
         IMPLEMENTATION_MODEL_NAME = (
             a.impl_model if a.impl_model is not None else IMPLEMENTATION_MODEL_NAME

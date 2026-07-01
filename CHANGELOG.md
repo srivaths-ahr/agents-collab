@@ -12,6 +12,19 @@ when an executor stops behaving.
 
 ### Added
 
+- **Interactive `run` now walks you through all five models + the executor.** The
+  run-settings wizard (shown for any knob you don't pass on an interactive `run`)
+  previously only asked for executor / impl-model / max-iters / max-cost; it now also
+  offers **clarify-model, plan-model, verify-model** — a numbered menu (opus/sonnet/
+  haiku, or type any slug), Enter accepts the default. The three model flags now
+  default to `None` like the other prompt-able knobs; headless/CI/`--dry-run` still
+  never prompt and use the module defaults.
+- **Per-iteration "files changed" line + a config recap + running cost.** Verify now
+  logs the files the executor touched this run (`git diff --name-status`,
+  e.g. `files changed (3): M Collector.swift  A CollectorTests.swift`); the run opens
+  with a one-line recap of the active models/executor/cost-cap; each iteration prints
+  the cumulative Claude spend. Optional ANSI colour on the phase banners / status
+  prefixes, off when stdout isn't a TTY or `NO_COLOR` is set (never touches files).
 - **`make release VERSION=X.Y.Z`.** Automates the mechanical half of a release: runs
   the tests, bumps `driver.py`'s `__version__`, turns the CHANGELOG's `[Unreleased]`
   section into a dated `[VERSION]` one (leaving a fresh empty `[Unreleased]`), then
