@@ -15,45 +15,32 @@ import install  # noqa: E402
 
 class TestRemovalReason(unittest.TestCase):
     def test_keep_when_nothing_qualifies(self):
+        # A user file that is neither an untouched seed nor forced is KEPT — even if
+        # it happens to be git-tracked & clean. git-state is no longer a signal,
+        # because it can't tell the tool's file from the user's pre-existing one.
         self.assertEqual(
-            install.removal_reason(force=False, matches_seed=False, git_clean=False),
-            "",
+            install.removal_reason(force=False, matches_seed=False), ""
         )
 
     def test_force(self):
         self.assertEqual(
-            install.removal_reason(force=True, matches_seed=False, git_clean=False),
-            "--force",
+            install.removal_reason(force=True, matches_seed=False), "--force"
         )
 
     def test_untouched_seed(self):
         self.assertEqual(
-            install.removal_reason(force=False, matches_seed=True, git_clean=False),
-            "untouched seed",
+            install.removal_reason(force=False, matches_seed=True), "untouched seed"
         )
 
-    def test_git_clean(self):
+    def test_force_wins_over_seed(self):
         self.assertEqual(
-            install.removal_reason(force=False, matches_seed=False, git_clean=True),
-            "git-clean (recoverable)",
+            install.removal_reason(force=True, matches_seed=True), "--force"
         )
 
-    def test_force_wins_over_seed_and_git(self):
-        self.assertEqual(
-            install.removal_reason(force=True, matches_seed=True, git_clean=True),
-            "--force",
-        )
-
-    def test_seed_wins_over_git(self):
-        self.assertEqual(
-            install.removal_reason(force=False, matches_seed=True, git_clean=True),
-            "untouched seed",
-        )
-
-    def test_any_qualifier_removes(self):
-        # Removed iff the reason is non-empty.
-        for f, s, g in [(True, False, False), (False, True, False), (False, False, True)]:
-            self.assertTrue(install.removal_reason(force=f, matches_seed=s, git_clean=g))
+    def test_removed_iff_reason_nonempty(self):
+        self.assertTrue(install.removal_reason(force=True, matches_seed=False))
+        self.assertTrue(install.removal_reason(force=False, matches_seed=True))
+        self.assertFalse(install.removal_reason(force=False, matches_seed=False))
 
 
 class TestFileLists(unittest.TestCase):
@@ -77,6 +64,59 @@ class TestFileLists(unittest.TestCase):
             install.shipped_prompts(),
             ["execute.md", "plan.md", "triage.md", "verify.md"],
         )
+
+
+class TestRenderGitExclude(unittest.TestCase):
+    PATS = ["/driver.py", "/prompts/plan.md", "/.loop/"]
+
+    def _block_count(self, text):
+        return text.count(install.EXCLUDE_BEGIN)
+
+    def test_add_to_empty(self):
+        out = install.render_git_exclude("", self.PATS, add=True)
+        self.assertIn(install.EXCLUDE_BEGIN, out)
+        self.assertIn(install.EXCLUDE_END, out)
+        for p in self.PATS:
+            self.assertIn(p, out)
+        self.assertTrue(out.endswith("\n"))
+
+    def test_add_is_idempotent(self):
+        once = install.render_git_exclude("", self.PATS, add=True)
+        twice = install.render_git_exclude(once, self.PATS, add=True)
+        self.assertEqual(self._block_count(twice), 1)
+        self.assertEqual(once, twice)
+
+    def test_remove_strips_block(self):
+        with_block = install.render_git_exclude("", self.PATS, add=True)
+        removed = install.render_git_exclude(with_block, self.PATS, add=False)
+        self.assertNotIn(install.EXCLUDE_BEGIN, removed)
+        self.assertNotIn("/driver.py", removed)
+
+    def test_preserves_user_lines_and_round_trips(self):
+        user = "*.log\n/build/\n"
+        added = install.render_git_exclude(user, self.PATS, add=True)
+        self.assertIn("*.log", added)
+        self.assertIn("/build/", added)
+        # add then remove returns to the user's original content
+        removed = install.render_git_exclude(added, self.PATS, add=False)
+        self.assertEqual(removed, user)
+
+    def test_remove_on_empty_is_empty(self):
+        self.assertEqual(install.render_git_exclude("", self.PATS, add=False), "")
+
+
+class TestExcludePatterns(unittest.TestCase):
+    def test_covers_tool_and_artifacts_not_user_content(self):
+        pats = install._exclude_patterns()
+        self.assertIn("/driver.py", pats)
+        self.assertIn("/executors.py", pats)
+        self.assertIn("/plan.md", pats)
+        self.assertIn("/.loop/", pats)
+        self.assertIn("/prompts/plan.md", pats)  # per-file, not the whole dir
+        self.assertNotIn("/prompts/", pats)
+        # user content the installer must NOT hide from git
+        for user in ("/task.md", "/context.md", "/AGENTS.md", "/clarifications.md"):
+            self.assertNotIn(user, pats)
 
 
 if __name__ == "__main__":
