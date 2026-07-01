@@ -35,6 +35,17 @@ when an executor stops behaving.
 
 ### Fixed
 
+- **Clarity gate no longer stops with an empty `clarifications_needed.json`.** When
+  the triage model set `ready:false` but returned no usable questions (none, or under
+  a wrong key like `"clarifications"`), the loop halted and wrote an empty questions
+  file — looking like "the clarity model failed." Now: if it's not-ready with no
+  questions *and* no issues, the gate warns and proceeds (like the existing non-JSON
+  fallback); with issues but no questions it surfaces them and halts cleanly; the halt
+  also explains it's writing a file because there's no terminal to prompt in (or the
+  clarification rounds ran out) — reducing the "sometimes on the console, sometimes in
+  a file" confusion (that split is just TTY vs non-TTY). `prompts/triage.md` is also
+  hardened: the questions key is fixed verbatim, `ready:false` must carry at least one
+  question (else return `ready:true`), with a worked not-ready example.
 - **Runs on a repo with no commits.** `capture_baseline` used `git rev-parse HEAD`,
   which has no answer in a freshly `git init`'d repo — so the loop crashed with a raw
   `git rev-parse HEAD failed: ... unknown revision 'HEAD'` traceback, *after* paying

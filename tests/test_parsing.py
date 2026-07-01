@@ -5,6 +5,8 @@ JSON envelope, the executor output, the verifier's verdict, the fence-stripping
 tolerance, and the stall fingerprint. Malformed input is tested as carefully as
 the happy path — that is where an autonomous loop gets it wrong."""
 
+import contextlib
+import io
 import json
 import os
 import sys
@@ -215,6 +217,44 @@ class TestAsList(unittest.TestCase):
     def test_scalar_is_wrapped(self):
         self.assertEqual(driver._as_list("x"), ["x"])
         self.assertEqual(driver._as_list({"a": 1}), [{"a": 1}])
+
+
+class TestClarifyGate(unittest.TestCase):
+    """clarify_gate's branching on the triage output, with triage_step faked so no
+    subprocess runs. INTERACTIVE_CLARIFY is forced off so the non-interactive path is
+    deterministic regardless of whether the test host is a TTY."""
+
+    def setUp(self):
+        self._orig_triage = driver.triage_step
+        self._orig_interactive = driver.INTERACTIVE_CLARIFY
+        driver.INTERACTIVE_CLARIFY = False
+
+    def tearDown(self):
+        driver.triage_step = self._orig_triage
+        driver.INTERACTIVE_CLARIFY = self._orig_interactive
+
+    def _gate(self, parsed):
+        driver.triage_step = lambda: (parsed, 0.0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            return driver.clarify_gate()
+
+    def test_ready_returns_and_does_not_halt(self):
+        self.assertEqual(self._gate({"ready": True}), 0.0)
+
+    def test_not_ready_but_empty_proceeds(self):
+        # ready=false with NO questions and NO issues -> proceed (no empty-file halt)
+        self.assertEqual(
+            self._gate({"ready": False, "questions": [], "issues": []}), 0.0
+        )
+
+    def test_not_ready_with_questions_halts(self):
+        with self.assertRaises(driver.NeedsClarification):
+            self._gate({"ready": False, "questions": [{"id": "Q1", "question": "?"}]})
+
+    def test_not_ready_issues_no_questions_halts(self):
+        # issues but nothing to ask -> surface & halt (not a silent proceed)
+        with self.assertRaises(driver.NeedsClarification):
+            self._gate({"ready": False, "questions": [], "issues": ["unclear X"]})
 
 
 if __name__ == "__main__":

@@ -36,7 +36,9 @@ questions:
 - For each, also state the default you would assume if forced to proceed without
   an answer (this lets the human skip low-stakes ones).
 
-OUTPUT — one JSON object, nothing else, no prose, no code fences:
+OUTPUT — exactly one JSON object and NOTHING else: no prose before or after, no
+markdown, no code fences. It must parse with a strict JSON parser. Use these keys
+VERBATIM — do not rename them, do not add others:
 
 {
 "ready": true | false,
@@ -53,5 +55,18 @@ OUTPUT — one JSON object, nothing else, no prose, no code fences:
 ]
 }
 
-When ready is true, "issues", "questions", and "assumptions_if_unanswered" must
-all be empty arrays.
+HARD RULES — a violation makes the output useless, so follow them exactly:
+
+- The clarifications go under the key **"questions"** (never "clarifications",
+  "asks", "items", etc.), and each is an object `{id, question, why}`. Do not
+  invent a different shape.
+- If "ready" is **true**: "issues", "questions", and "assumptions_if_unanswered"
+  are ALL empty arrays `[]`.
+- If "ready" is **false**: "questions" MUST contain at least one entry. Never
+  return ready=false with an empty "questions" list — if you cannot name a
+  concrete, answerable question that would change the plan, then the task IS ready:
+  return ready=true instead.
+
+Example of a NOT-ready output (copy this shape exactly):
+
+{"ready": false, "issues": ["No maximum size is given for the cache"], "questions": [{"id": "Q1", "question": "What is the cache's maximum size — a fixed entry count (e.g. 1000) or a memory bound?", "why": "The eviction step and its test both depend on the bound"}], "assumptions_if_unanswered": ["Assume a 1000-entry cap if unanswered"]}

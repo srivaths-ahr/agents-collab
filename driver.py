@@ -749,14 +749,27 @@ def clarify_gate():
         issues = [normalize_issue(i) for i in _as_list(parsed.get("issues"))]
         questions = [normalize_question(q) for q in _as_list(parsed.get("questions"))]
         assumptions = [str(a) for a in _as_list(parsed.get("assumptions_if_unanswered"))]
+
+        if not questions:
+            # Not-ready but nothing to ask — the model set ready=false yet returned no
+            # questions (or keyed them wrong). Don't trap the user with an empty
+            # halt/file: if there's nothing actionable at all, warn and proceed (same
+            # spirit as the non-JSON fallback); if there are issues, surface & halt.
+            if not issues:
+                log(
+                    "clarity gate said 'not ready' but gave no questions or issues — "
+                    "proceeding as if clear.",
+                    prefix="!",
+                )
+                return cost
+            raise NeedsClarification(questions, issues, assumptions)
+
         log(f"task not ready (round {round_no}):", prefix="!")
         for i in issues:
             log(f"  issue: {i}")
 
         if not (INTERACTIVE_CLARIFY and sys.stdin.isatty()):
-            raise NeedsClarification(
-                questions, issues, assumptions
-            )  # unattended -> halt
+            raise NeedsClarification(questions, issues, assumptions)  # unattended -> halt
 
         block = ["", f"## Clarification round {round_no}"]
         for q in questions:
@@ -781,6 +794,11 @@ def clarify_gate():
 
 def halt_needs_clarification(nc, total_cost):
     banner("STOPPED — task needs clarification before planning")
+    log(
+        "not asking interactively (no terminal to prompt in, or the clarification "
+        "rounds ran out), so the open questions are below and saved to a file.",
+        prefix="·",
+    )
     for i in nc.issues:
         log(f"  unclear: {i}", prefix="!")
     if nc.questions:
