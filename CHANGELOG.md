@@ -10,6 +10,22 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The loop no longer stages the tool's own files into your repo.** The verifier's
+  diff is built with `git add -A` (to capture files the executor creates), which also
+  swept up `driver.py`, `executors.py`, `prompts/`, and the per-run artifacts — so
+  they polluted the verified diff and, once `install.py --uninstall` deleted them,
+  lingered as "deleted but staged" ghosts in `git status`. The installer now adds
+  those paths to the target's `.git/info/exclude` (a local ignore — no visible change
+  to your tracked `.gitignore`), so `git add -A` stages **only your project edits**.
+  Uninstall removes that block and unstages exactly the files it deletes (tool,
+  artifacts, or an untouched seed), so the repo ends clean — including for repos
+  already in the broken state. The driver's `git add -A` is unchanged. Already
+  affected and keeping the tool? Re-run `install.py` (adds the exclude), then
+  `git rm -r --cached --ignore-unmatch driver.py executors.py prompts __pycache__ .loop plan.md verdict.json clarifications_needed.json`
+  once to drop the stale staged copies.
+
 ## [0.3.0] — 2026-06-30
 
 ### Added

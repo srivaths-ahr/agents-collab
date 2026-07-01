@@ -79,5 +79,58 @@ class TestFileLists(unittest.TestCase):
         )
 
 
+class TestRenderGitExclude(unittest.TestCase):
+    PATS = ["/driver.py", "/prompts/plan.md", "/.loop/"]
+
+    def _block_count(self, text):
+        return text.count(install.EXCLUDE_BEGIN)
+
+    def test_add_to_empty(self):
+        out = install.render_git_exclude("", self.PATS, add=True)
+        self.assertIn(install.EXCLUDE_BEGIN, out)
+        self.assertIn(install.EXCLUDE_END, out)
+        for p in self.PATS:
+            self.assertIn(p, out)
+        self.assertTrue(out.endswith("\n"))
+
+    def test_add_is_idempotent(self):
+        once = install.render_git_exclude("", self.PATS, add=True)
+        twice = install.render_git_exclude(once, self.PATS, add=True)
+        self.assertEqual(self._block_count(twice), 1)
+        self.assertEqual(once, twice)
+
+    def test_remove_strips_block(self):
+        with_block = install.render_git_exclude("", self.PATS, add=True)
+        removed = install.render_git_exclude(with_block, self.PATS, add=False)
+        self.assertNotIn(install.EXCLUDE_BEGIN, removed)
+        self.assertNotIn("/driver.py", removed)
+
+    def test_preserves_user_lines_and_round_trips(self):
+        user = "*.log\n/build/\n"
+        added = install.render_git_exclude(user, self.PATS, add=True)
+        self.assertIn("*.log", added)
+        self.assertIn("/build/", added)
+        # add then remove returns to the user's original content
+        removed = install.render_git_exclude(added, self.PATS, add=False)
+        self.assertEqual(removed, user)
+
+    def test_remove_on_empty_is_empty(self):
+        self.assertEqual(install.render_git_exclude("", self.PATS, add=False), "")
+
+
+class TestExcludePatterns(unittest.TestCase):
+    def test_covers_tool_and_artifacts_not_user_content(self):
+        pats = install._exclude_patterns()
+        self.assertIn("/driver.py", pats)
+        self.assertIn("/executors.py", pats)
+        self.assertIn("/plan.md", pats)
+        self.assertIn("/.loop/", pats)
+        self.assertIn("/prompts/plan.md", pats)  # per-file, not the whole dir
+        self.assertNotIn("/prompts/", pats)
+        # user content the installer must NOT hide from git
+        for user in ("/task.md", "/context.md", "/AGENTS.md", "/clarifications.md"):
+            self.assertNotIn(user, pats)
+
+
 if __name__ == "__main__":
     unittest.main()

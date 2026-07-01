@@ -72,6 +72,12 @@ seeds `AGENTS.md` + the `*.example` files **only if absent** — re-run it to up
 without clobbering your standing rules or an in-progress task. Prefer to do it by
 hand? Copy `{driver.py,executors.py,prompts,AGENTS.md}` into the repo yourself.
 
+It also adds the tool's own files + per-run artifacts to `.git/info/exclude` (a
+local ignore, not your tracked `.gitignore`), so the loop's `git add -A` stages
+**only your project edits** — not `driver.py`/`prompts/`/artifacts. Uninstall
+removes that block and unstages what it deletes, leaving `git status` clean. (Did a
+hand-copy instead? Add those paths to your ignores yourself.)
+
 Run the loop from inside that repo (the prompt files are read by relative path).
 
 ### Uninstall
