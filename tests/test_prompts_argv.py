@@ -275,10 +275,32 @@ class TestRunSettingResolvers(unittest.TestCase):
         self.assertIsNone(driver.resolve_number("-1", 0.0, cast=float, minimum=0.0))
         self.assertIsNone(driver.resolve_number("abc", 8, cast=int, minimum=1))
 
+    def test_resolve_model_empty_is_default(self):
+        self.assertEqual(driver.resolve_model("", ["opus", "sonnet"], "opus"), "opus")
+        self.assertEqual(driver.resolve_model("  ", ["opus", "sonnet"], "sonnet"), "sonnet")
+
+    def test_resolve_model_index_picks_suggestion(self):
+        s = ["opus", "sonnet", "haiku"]
+        self.assertEqual(driver.resolve_model("1", s, "haiku"), "opus")
+        self.assertEqual(driver.resolve_model("3", s, "haiku"), "haiku")
+
+    def test_resolve_model_out_of_range_index_is_none(self):
+        # a bare out-of-range number is a mistake -> re-ask (None), not a slug
+        self.assertIsNone(driver.resolve_model("0", ["opus", "sonnet"], "opus"))
+        self.assertIsNone(driver.resolve_model("9", ["opus", "sonnet"], "opus"))
+
+    def test_resolve_model_free_text_slug_is_accepted(self):
+        # unlike resolve_choice, ANY non-numeric string is a valid model id
+        self.assertEqual(
+            driver.resolve_model("claude-opus-4-8", ["opus"], "opus"), "claude-opus-4-8"
+        )
+
 
 class TestPromptRunSettings(unittest.TestCase):
     """The interactive layer: only the knobs left None are asked; passed flags pass
-    through, and answers route through the pure resolvers above."""
+    through, and answers route through the pure resolvers above. Prompt order follows
+    the pipeline: clarify-model, plan-model, executor, impl-model, verify-model,
+    max-iters, max-cost. Returns a settings dict."""
 
     def _run(self, namespace, answers):
         it = iter(answers)
@@ -290,39 +312,71 @@ class TestPromptRunSettings(unittest.TestCase):
                     impl_default="composer-2.5",
                     iter_default=8,
                     cost_default=0.0,
+                    clarify_default="haiku",
+                    plan_default="opus",
+                    verify_default="haiku",
                 )
 
-    def test_prompts_only_for_unset_knobs(self):
-        # executor passed; the rest None -> 3 answers consumed (model, iters, cost).
-        ns = argparse.Namespace(
-            executor="codex", impl_model=None, max_iterations=None, max_cost_usd=None
+    @staticmethod
+    def _ns(**over):
+        base = dict(
+            clarify_model=None, plan_model=None, verify_model=None,
+            executor=None, impl_model=None, max_iterations=None, max_cost_usd=None,
         )
-        ex, im, mi, mc = self._run(ns, ["", "5", "1.50"])
-        self.assertEqual(ex, "codex")  # passed through, never asked
-        # blank model -> the per-executor suggestion for codex
-        self.assertEqual(im, driver.executors.SUGGESTED_IMPL_MODELS["codex"])
-        self.assertEqual(mi, 5)
-        self.assertEqual(mc, 1.50)
+        base.update(over)
+        return argparse.Namespace(**base)
+
+    def test_prompts_only_for_unset_knobs(self):
+        # executor passed; the rest None -> 6 answers (clarify, plan, impl, verify,
+        # iters, cost) — executor is NOT asked.
+        ns = self._ns(executor="codex")
+        s = self._run(ns, ["", "", "", "", "5", "1.50"])
+        self.assertEqual(s["executor"], "codex")  # passed through, never asked
+        self.assertEqual(s["clarify_model"], "haiku")  # blank -> default
+        self.assertEqual(s["plan_model"], "opus")
+        self.assertEqual(s["verify_model"], "haiku")
+        self.assertEqual(s["impl_model"], driver.executors.SUGGESTED_IMPL_MODELS["codex"])
+        self.assertEqual(s["max_iter"], 5)
+        self.assertEqual(s["max_cost"], 1.50)
 
     def test_all_unset_uses_index_and_defaults(self):
-        ns = argparse.Namespace(
-            executor=None, impl_model=None, max_iterations=None, max_cost_usd=None
-        )
+        ns = self._ns()
         names = list(driver.executors.EXECUTORS)
-        # choose executor #2 by index, accept suggested model, accept default iters+cost
-        ex, im, mi, mc = self._run(ns, ["2", "", "", ""])
-        self.assertEqual(ex, names[1])
-        self.assertEqual(im, driver.executors.SUGGESTED_IMPL_MODELS.get(names[1]))
-        self.assertEqual(mi, 8)
-        self.assertEqual(mc, 0.0)
+        # clarify=#2 (sonnet), plan=Enter(opus), executor=#2, impl=Enter,
+        # verify=#3 (haiku), iters=Enter(8), cost=Enter(0.0)
+        s = self._run(ns, ["2", "", "2", "", "3", "", ""])
+        self.assertEqual(s["clarify_model"], "sonnet")
+        self.assertEqual(s["plan_model"], "opus")
+        self.assertEqual(s["executor"], names[1])
+        self.assertEqual(s["impl_model"], driver.executors.SUGGESTED_IMPL_MODELS.get(names[1]))
+        self.assertEqual(s["verify_model"], "haiku")
+        self.assertEqual(s["max_iter"], 8)
+        self.assertEqual(s["max_cost"], 0.0)
+
+    def test_free_text_model_slug_accepted(self):
+        ns = self._ns(
+            plan_model=None, clarify_model="haiku", verify_model="haiku",
+            executor="claude", impl_model="sonnet", max_iterations=3, max_cost_usd=2.0,
+        )
+        # only plan-model is asked; a typed slug is taken as-is
+        s = self._run(ns, ["claude-opus-4-8"])
+        self.assertEqual(s["plan_model"], "claude-opus-4-8")
 
     def test_nothing_asked_when_all_passed(self):
-        ns = argparse.Namespace(
-            executor="claude", impl_model="sonnet", max_iterations=3, max_cost_usd=2.0
+        ns = self._ns(
+            clarify_model="haiku", plan_model="opus", verify_model="haiku",
+            executor="claude", impl_model="sonnet", max_iterations=3, max_cost_usd=2.0,
         )
         # no answers available; if it tried to input() it would StopIteration
-        ex, im, mi, mc = self._run(ns, [])
-        self.assertEqual((ex, im, mi, mc), ("claude", "sonnet", 3, 2.0))
+        s = self._run(ns, [])
+        self.assertEqual(
+            s,
+            {
+                "clarify_model": "haiku", "plan_model": "opus", "verify_model": "haiku",
+                "executor": "claude", "impl_model": "sonnet",
+                "max_iter": 3, "max_cost": 2.0,
+            },
+        )
 
 
 if __name__ == "__main__":
