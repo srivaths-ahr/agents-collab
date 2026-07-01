@@ -33,6 +33,18 @@ when an executor stops behaving.
   printed. Refuses on a dirty tree, off `main`, a bad/duplicate version, or an empty
   `[Unreleased]`, and leaves the repo untouched when it refuses.
 
+### Fixed
+
+- **Runs on a repo with no commits.** `capture_baseline` used `git rev-parse HEAD`,
+  which has no answer in a freshly `git init`'d repo — so the loop crashed with a raw
+  `git rev-parse HEAD failed: ... unknown revision 'HEAD'` traceback, *after* paying
+  for the clarity gate. It now snapshots the start state with `git add -A; git
+  write-tree` (a tree object, non-committing), which works with or without commits.
+  Bonus: the baseline is now the actual loop-start state, so the verified diff
+  isolates the executor's edits from any pre-existing *uncommitted* work (identical to
+  before for a clean repo, where the index equals `HEAD`). `capture_baseline` is also
+  wrapped so a genuinely broken git repo fails cleanly instead of via traceback.
+
 ## [0.3.1] — 2026-07-01
 
 ### Fixed

@@ -382,12 +382,19 @@ def git(*args):
 
 
 def capture_baseline():
-    return git("rev-parse", "HEAD").strip()
+    """Snapshot the repo's current state as a git tree (via the index), WITHOUT
+    committing, so the loop can diff the executor's changes against the start of the
+    run. `write-tree` works whether or not the repo has any commits yet — a fresh
+    `git init` with no HEAD is fine (unlike `rev-parse HEAD`) — and it isolates the
+    executor's edits from any pre-existing uncommitted work. Returns a tree SHA, used
+    only as the left side of `git diff --cached`; never checked out or reset."""
+    git("add", "-A")
+    return git("write-tree").strip()
 
 
 def staged_diff_against(baseline):
     """Stage everything and return the
-    cumulative diff vs the loop's start commit.
+    cumulative diff vs the loop's start snapshot (see capture_baseline).
     Staging is how we capture new/untracked files in the diff;
     we never commit."""
     git("add", "-A")
@@ -573,7 +580,7 @@ def verify_step(iteration, baseline):
         # Executor changed nothing at all vs baseline — nothing to verify.
         return {
             "status": "blocked",
-            "reasons": ["Executor produced no changes against the baseline commit."],
+            "reasons": ["Executor produced no changes against the baseline snapshot."],
             "criteria": [],
             "tests": {"ran": ran, "passed": passed, "summary": "no diff"},
             "_no_diff": True,
@@ -1119,8 +1126,12 @@ def main():
         log(str(e), prefix="✗")
         sys.exit(1)
 
-    baseline = capture_baseline()
-    log(f"baseline commit: {baseline[:10]}  | max_iterations={MAX_ITERATIONS}")
+    try:
+        baseline = capture_baseline()
+    except StepError as e:  # a broken git repo — fail cleanly, no traceback
+        log(str(e), prefix="✗")
+        sys.exit(1)
+    log(f"baseline snapshot: {baseline[:10]}  | max_iterations={MAX_ITERATIONS}")
     cap = f"${MAX_COST_USD:.2f}" if MAX_COST_USD > 0 else "none"
     log(
         f"models: clarify={CLARIFY_MODEL_NAME} plan={PLAN_CLAUDE_MODEL_NAME} "
