@@ -882,8 +882,10 @@ def author_instruction():
     author_step and the --dry-run preview so the two can't drift. Names the on-disk
     story + answers scratch files the stateless agent reads, mirroring how
     triage_instruction points the gate at task.md/context.md."""
-    story = os.path.join(WORK_DIR, AUTHOR_STORY_FILE)
-    answers = os.path.join(WORK_DIR, AUTHOR_ANSWERS_FILE)
+    # Forward-slash prompt paths (Claude's Read tool normalizes '/' on Windows), like
+    # verify_instruction/triage_instruction — the driver's real file I/O uses os.path.join.
+    story = f"{WORK_DIR}/{AUTHOR_STORY_FILE}"
+    answers = f"{WORK_DIR}/{AUTHOR_ANSWERS_FILE}"
     files = [
         f"{story} (the raw requirements/Jira story to turn into a task.md)",
         f"{answers} (answers to your earlier questions — authoritative; a "
