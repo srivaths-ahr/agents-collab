@@ -55,6 +55,18 @@ class TestBuildClaudeArgv(unittest.TestCase):
         i = argv.index("--allowedTools")
         self.assertEqual(argv[i + 1], "Read,Grep,Glob")
 
+    def test_author_allowed_tools_argv(self):
+        # the author step runs read-only, grounding criteria in the real repo
+        argv, _ = driver.build_claude_argv(
+            "P",
+            model="sonnet",
+            system_prompt_file=None,
+            allowed_tools=driver.AUTHOR_ALLOWED_TOOLS,
+            windows=False,
+        )
+        i = argv.index("--allowedTools")
+        self.assertEqual(argv[i + 1], "Read,Grep,Glob")
+
     def test_skip_permissions_replaces_allowed_tools(self):
         # skip_permissions and allowedTools are mutually exclusive (elif): when
         # skipping, no --allowedTools should appear.
@@ -209,6 +221,13 @@ class TestInstructionBuilders(unittest.TestCase):
         self.assertIn(driver.TASK_FILE, text)
         self.assertIn(driver.CONTEXT_FILE, text)
 
+    def test_author_instruction_names_story_answers_and_json(self):
+        text = driver.author_instruction()
+        self.assertIn(driver.AUTHOR_STORY_FILE, text)
+        self.assertIn(driver.AUTHOR_ANSWERS_FILE, text)
+        self.assertIn(driver.WORK_DIR, text)
+        self.assertIn("JSON only", text)
+
 
 class TestPathOverridesFlowToInstructions(unittest.TestCase):
     """--task/--context/--work-dir reassign the module path globals; the builders
@@ -240,6 +259,9 @@ class TestPathOverridesFlowToInstructions(unittest.TestCase):
 
         triage = driver.triage_instruction()
         self.assertIn("units/01-to_roman/task.md", triage)
+
+        author = driver.author_instruction()
+        self.assertIn("units/01-to_roman/.loop/author_story.md", author)
 
 
 class TestRunSettingResolvers(unittest.TestCase):

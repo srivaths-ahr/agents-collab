@@ -10,6 +10,27 @@ when an executor stops behaving.
 
 ## [Unreleased]
 
+### Added
+
+- **`author` subcommand — turn a Jira story / requirements doc into a `task.md`.**
+  `python driver.py author --from STORY-123.txt` (or pipe the story on stdin) runs an
+  interactive Claude pass that drafts a well-formed `task.md` — unambiguous goal,
+  numbered independently-checkable acceptance criteria, in/out of scope, constraints —
+  asking only the clarifying questions whose answers would change the task, then writing
+  the file the rest of the loop already depends on. It's a **standalone** step (a sibling
+  of `doctor`), not part of the plan/execute/verify loop, and the author agent's
+  readiness bar is literally the clarity gate's, so an authored task sails through
+  `clarify` with few or no follow-ups. Stays true to the invariants: **standard library
+  only, no network, no credentials** (local file or stdin in — no Jira API); **one**
+  focused `task.md` out (if a story spans several units it prints a *suggested split* and
+  tells you to loop `run` per unit — it never auto-decomposes); and **non-destructive**
+  (won't overwrite an existing `task.md` without a `[y/N]` confirm or `--force`). New
+  flags: `--from <path>`, `--author-model` (default `sonnet`), `--force`; reuses `--task`
+  as the output path. Piping the story on stdin makes the run one-shot best-effort
+  (stdin isn't a TTY, so the live Q&A can't run) — use `--from <path>` for the
+  interactive loop. Author-stage Q&A is kept in a separate `.loop/author_answers.md`, so
+  it never pollutes the run's `clarifications.md`.
+
 ## [0.4.0] — 2026-07-01
 
 ### Added

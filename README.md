@@ -110,6 +110,9 @@ python driver.py
 #    task.md is auto-scaffolded above; context.md is NOT — you must add it.
 #      cp task.md.example task.md        # then fill in goal + checkable acceptance criteria
 #      cp context.md.example context.md  # then describe your codebase (required, not optional)
+#    Have a Jira story or requirements doc instead of a written task.md? Let Claude
+#    draft one for you (see "Authoring task.md" below):
+#      python driver.py author --from jira-STORY-123.txt   # asks questions, writes task.md
 
 # 3) check your environment is ready (no spend, no edits)
 python driver.py doctor
@@ -129,6 +132,38 @@ python driver.py \
 `--test-command` is repeatable: pass it once per gate (lint, build, test) and
 **all** must pass. `--max-cost-usd` stops the loop once cumulative Claude spend
 reaches the cap (`0` = no limit).
+
+### Authoring `task.md` from a Jira story or requirements doc
+
+The whole loop is only as good as `task.md` — a sharp, checkable task converges in
+fewer, cheaper iterations. If what you have is a Jira story or a requirements doc
+rather than a written task, let Claude draft one:
+
+```bash
+python driver.py author --from jira-STORY-123.txt   # or: pbpaste | python driver.py author
+```
+
+It reads the story, asks the few clarifying questions whose answers would actually
+change the task, and writes a well-formed `task.md` (goal, numbered
+independently-checkable acceptance criteria, in/out of scope, constraints) — grounding
+the criteria in your `context.md` and real file paths. Because it holds itself to the
+**same readiness bar the clarity gate uses**, the task it writes then passes `clarify`
+with few or no follow-ups.
+
+- **Input is a local file or stdin only** — no Jira API, no network, no stored
+  credentials (the tool's standing invariants). Export or copy the story into a text
+  file, or pipe it in.
+- **`--from <path>` enables the interactive Q&A**; piping the story on **stdin** makes
+  the run one-shot best-effort (stdin is then a non-TTY, so it can't prompt) — it still
+  writes the best draft it can and prints any open questions.
+- **One `task.md` out.** If a story clearly spans several units of work, `author`
+  doesn't split it — it writes the single most sensible unit and prints a **suggested
+  split** so you can [loop `run` per unit](#running-multiple-units-a-decomposed-story).
+- **Non-destructive.** It won't overwrite an existing `task.md` without a `[y/N]`
+  confirm (or `--force`); use `--task units/03/task.md` to write elsewhere. Pick the
+  drafting model with `--author-model` (default `sonnet`).
+
+Then review the `task.md` it wrote and run the loop as usual.
 
 ### Before you spend: `doctor` and `--dry-run`
 
@@ -170,6 +205,9 @@ Set defaults at the top of `driver.py`, or override per run:
 | `--task`           | task file to run (default: `task.md`) — point at one unit to loop a story        |
 | `--context`        | architecture-map file (default: `context.md`); shared across units              |
 | `--work-dir`       | scratch dir for diff/test/raw artifacts (default: `.loop`); override per unit    |
+| `--from`           | `author` only: the requirements/Jira story file (or stdin) to draft `task.md` from |
+| `--author-model`   | `author` only: Claude model that drafts `task.md` (default: `sonnet`)            |
+| `--force`          | `author` only: overwrite an existing `--task` file without confirming            |
 
 **†** Omit any of these on an interactive `run` and the driver **walks you through
 them** (a numbered menu for the executor and each Claude model — opus/sonnet/haiku, or
@@ -188,6 +226,10 @@ This tool does one thing: take **one** task to a verified PASS. It deliberately 
 *not* decompose a Jira story or orchestrate a batch — splitting work is a judgment call
 you (or any other tool) make, and looping is a shell `for`. What the loop gives you is
 the part worth owning: each unit is checked against an objective gate.
+
+(This is why [`author`](#authoring-taskmd-from-a-jira-story-or-requirements-doc) writes
+**one** `task.md` and, when a story spans several units, only prints a *suggested split*
+rather than emitting multiple tasks — the decomposition stays your call.)
 
 So decompose however you like into one `task.md` per unit, then point `--task` /
 `--context` / `--work-dir` at each and loop:
@@ -258,7 +300,9 @@ installed on your machine, and please PR an update here when you verify a backen
   progress across rounds), iteration budget or `--max-cost-usd` exhausted, or
   malformed verifier output.
 - **Non-destructive** — the driver stages to compute diffs but never commits,
-  resets, or deletes.
+  resets, or deletes. The `author` step likewise won't overwrite an existing
+  `task.md` without a confirm (or `--force`), reads its input from a local file or
+  stdin only (no network, no credentials), and uses read-only tools.
 
 ## What it costs
 

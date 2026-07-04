@@ -72,6 +72,20 @@ INTERACTIVE_CLARIFY = (
     True  # TTY: ask questions live; non-TTY: write questions to a file and halt
 )
 
+# ---- AUTHOR STEP (standalone `author` subcommand: raw story -> task.md) ----
+# Not part of the plan/execute/verify loop. Turns a requirements/Jira story (from
+# --from FILE or stdin) into a well-formed task.md, asking clarifying questions in a
+# TTY. Reasoning-heavy but human-reviewed, so a mid-tier model is the default;
+# --author-model overrides. Read-only tools only (grounds criteria in the real repo).
+AUTHOR_MODEL_NAME = "sonnet"
+AUTHOR_MAX_ROUNDS = 3  # interactive draft/Q&A rounds (mirrors CLARIFY_MAX_ROUNDS)
+INTERACTIVE_AUTHOR = True  # TTY: ask live & refine; non-TTY: write best-effort draft
+AUTHOR_ALLOWED_TOOLS = ["Read", "Grep", "Glob"]
+AUTHOR_STORY_FILE = "author_story.md"  # basename under WORK_DIR (already gitignored)
+AUTHOR_ANSWERS_FILE = "author_answers.md"  # author Q&A scratch — NOT clarifications.md
+AUTHOR_STORY_SRC = None  # set from --from ("-"/None => stdin)
+AUTHOR_FORCE = False  # set from --force (overwrite an existing task.md without asking)
+
 # ---- LOOP BUDGET / STOP GUARDS ----
 MAX_ITERATIONS = 8  # hard cap; loop stops even if not "pass"
 MAX_IDENTICAL_FAILURES = (
@@ -831,6 +845,227 @@ def halt_needs_clarification(nc, total_cost):
 
 
 # ============================================================================
+# Author subcommand (turn a requirements/Jira story into a task.md)
+# ============================================================================
+#
+# Standalone helper, NOT part of the plan/execute/verify loop: it reads a raw
+# requirements/Jira story (--from FILE or stdin), runs a bounded interactive Claude
+# loop that DRAFTS a task.md, and the driver writes the file. The author agent's
+# readiness bar is triage.md's, so the authored task then sails through the clarity
+# gate. Mirrors clarify_gate's interaction model, with one deliberate difference:
+# clarify GATES spend and halts when unclear; author PRODUCES a file, so on a non-TTY
+# run (or exhausted rounds) it writes the best-effort draft instead of halting.
+
+
+def read_story(source):
+    """Raw requirements text from --from FILE, or from stdin when source is None/'-'
+    and stdin isn't a TTY. Raises FatalError (before any Claude spend) on a missing
+    file, no available source, or empty input."""
+    if source and source != "-":
+        if not os.path.exists(source):
+            raise FatalError(f"--from {source}: file not found")
+        text = read_file(source)
+    elif not sys.stdin.isatty():
+        text = sys.stdin.read()
+    else:
+        raise FatalError(
+            "no requirements input: pass --from <path>, or pipe a story on stdin "
+            "(e.g. `pbpaste | python driver.py author`)."
+        )
+    if not text.strip():
+        raise FatalError("requirements input is empty — nothing to author a task from.")
+    return text
+
+
+def author_instruction():
+    """The AUTHOR step's user prompt. Pure (modulo os.path.exists); shared by
+    author_step and the --dry-run preview so the two can't drift. Names the on-disk
+    story + answers scratch files the stateless agent reads, mirroring how
+    triage_instruction points the gate at task.md/context.md."""
+    story = os.path.join(WORK_DIR, AUTHOR_STORY_FILE)
+    answers = os.path.join(WORK_DIR, AUTHOR_ANSWERS_FILE)
+    files = [
+        f"{story} (the raw requirements/Jira story to turn into a task.md)",
+        f"{answers} (answers to your earlier questions — authoritative; a "
+        "header-only file means none yet)",
+    ]
+    if os.path.exists(CONTEXT_FILE):
+        files.append(
+            f"{CONTEXT_FILE} (architecture map — ground the criteria in real paths)"
+        )
+    return (
+        "Draft a single focused task.md from the requirements. Read: "
+        + "; ".join(files)
+        + ". Output the author JSON exactly per your instructions — JSON only."
+    )
+
+
+def normalize_author_result(parsed):
+    """Coerce the author agent's JSON into (draft, questions, assumptions, multi_note,
+    ready). Reuses normalize_question/_as_list and degrades safely so loose model
+    output can't crash the loop. Pure, so it's unit-tested."""
+    draft = str(parsed.get("draft_task_md") or parsed.get("task_md") or "")
+    questions = [normalize_question(q) for q in _as_list(parsed.get("questions"))]
+    assumptions = [str(a) for a in _as_list(parsed.get("assumptions_if_unanswered"))]
+    note = str(parsed.get("multi_unit_note") or "")
+    if not note and parsed.get("multi_unit"):
+        note = "This story spans multiple units — split it and loop `run` per unit."
+    return draft, questions, assumptions, note, bool(parsed.get("ready"))
+
+
+def is_affirmative(raw):
+    """True for a yes-ish answer to a [y/N] prompt. Pure, so it's unit-tested."""
+    return raw.strip().lower() in ("y", "yes")
+
+
+def author_step():
+    """Ask the author agent for a task.md draft + any clarifying questions. Returns
+    (parsed_dict, cost). Unlike the clarity gate this does NOT fail open — the whole
+    point of this step is the draft, so a garbled round yields {} and the caller falls
+    back to the last good draft (or stops if there never was one)."""
+    res = run_claude(
+        author_instruction(),
+        model=AUTHOR_MODEL_NAME,
+        system_prompt_file=os.path.join(PROMPTS_DIR, "author.md"),
+        allowed_tools=AUTHOR_ALLOWED_TOOLS,
+    )
+    write_file(os.path.join(WORK_DIR, "author_raw.txt"), res["result"])
+    raw = strip_fences(res["result"])
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = _extract_json_object(raw)  # recover JSON wrapped in narration
+    return (parsed if isinstance(parsed, dict) else {}), res["cost"]
+
+
+def _write_task_or_refuse(draft):
+    """Write the drafted task.md, but never clobber an existing one silently (the
+    non-destructive invariant). In a TTY, confirm the overwrite; otherwise refuse and
+    tell the user how to proceed. --force skips the guard."""
+    content = draft.rstrip() + "\n"
+    if os.path.exists(TASK_FILE) and not AUTHOR_FORCE:
+        if _interactive():
+            if not is_affirmative(input(f"{TASK_FILE} already exists. Overwrite? [y/N] ")):
+                log(
+                    f"kept existing {TASK_FILE}. Re-run with --task <other path> or "
+                    f"--force to replace it.",
+                    prefix="!",
+                )
+                sys.exit(1)
+        else:
+            log(
+                f"{TASK_FILE} already exists; refusing to overwrite non-interactively. "
+                f"Pass --task <path> to write elsewhere, or --force to replace it.",
+                prefix="✗",
+            )
+            sys.exit(1)
+    write_file(TASK_FILE, content)
+
+
+def author():
+    """The `author` subcommand: raw story -> task.md, asking clarifying questions in a
+    TTY. Self-contained (sys.exits like doctor/dry_run), so it returns before the
+    run loop is ever reached."""
+    banner(f"AUTHOR — draft {TASK_FILE} from requirements  ({AUTHOR_MODEL_NAME})")
+    if not os.path.exists(os.path.join(PROMPTS_DIR, "author.md")):
+        log(
+            f"missing {os.path.join(PROMPTS_DIR, 'author.md')} — run "
+            f"`python driver.py doctor`.",
+            prefix="✗",
+        )
+        sys.exit(1)
+
+    if DRY_RUN:  # print the command + prompt only — create/write nothing
+        _preview_claude(
+            "AUTHOR",
+            model=AUTHOR_MODEL_NAME,
+            prompt=author_instruction(),
+            system_prompt_file=os.path.join(PROMPTS_DIR, "author.md"),
+            allowed_tools=AUTHOR_ALLOWED_TOOLS,
+        )
+        banner("DRY RUN — end (nothing was executed)")
+        sys.exit(0)
+
+    # Read the story BEFORE creating any scratch (a bad --from should fail with no
+    # side effects), then make the scratch dir for the story/answers/raw artifacts.
+    story = read_story(AUTHOR_STORY_SRC)
+    os.makedirs(os.path.join(REPO_ROOT, WORK_DIR), exist_ok=True)
+    if len(story) > 64 * 1024:
+        log(
+            f"story is large ({len(story) // 1024} KB) — the author focuses on one "
+            f"unit and will flag a split if it spans several.",
+            prefix="!",
+        )
+    write_file(os.path.join(WORK_DIR, AUTHOR_STORY_FILE), story)
+    # Fresh answers file each invocation (truncate, never delete) so a prior author
+    # session's answers never leak into this one.
+    write_file(os.path.join(WORK_DIR, AUTHOR_ANSWERS_FILE), "# Author answers\n")
+
+    cost = 0.0
+    last_draft = ""
+    open_questions, assumptions, multi_note = [], [], ""
+    for round_no in range(1, AUTHOR_MAX_ROUNDS + 1):
+        parsed, c = author_step()
+        cost += c
+        draft, questions, assumptions, multi_note, ready = normalize_author_result(parsed)
+        if draft.strip():
+            last_draft = draft
+
+        if ready or not questions:
+            open_questions = []
+            break
+
+        if not (INTERACTIVE_AUTHOR and _interactive()):
+            open_questions = questions  # non-TTY: write best-effort below, don't halt
+            break
+
+        log(f"draft needs input (round {round_no}):", prefix="?")
+        block = ["", f"## Author round {round_no}"]
+        for q in questions:
+            print(f"\nQ ({q.get('id', '?')}): {q.get('question', '')}")
+            if q.get("why"):
+                print(f"   (why it matters: {q['why']})")
+            ans = input("   your answer > ").strip()
+            block += [f"- Q ({q.get('id', '?')}): {q.get('question', '')}", f"  A: {ans}"]
+        existing = read_file(os.path.join(WORK_DIR, AUTHOR_ANSWERS_FILE))
+        write_file(
+            os.path.join(WORK_DIR, AUTHOR_ANSWERS_FILE),
+            existing + "\n".join(block) + "\n",
+        )
+        log("answers recorded; regenerating draft.", prefix="↻")
+    else:
+        open_questions = questions  # rounds exhausted — write best-effort below
+
+    if not last_draft.strip():
+        log(
+            f"no usable draft produced (see {WORK_DIR}/author_raw.txt).",
+            prefix="✗",
+        )
+        log(f"claude spend : ${cost:.4f}")
+        sys.exit(1)
+
+    _write_task_or_refuse(last_draft)
+
+    banner("AUTHOR — done")
+    log(f"wrote {os.path.abspath(TASK_FILE)}", prefix="✓")
+    if multi_note:
+        log(multi_note, prefix="!")
+    if open_questions:
+        log(
+            "open questions remain — the run's clarity gate will re-check before "
+            "planning. Sharpen task.md or answer them, then run the loop:",
+            prefix="?",
+        )
+        for q in open_questions:
+            log(f"  - [{q.get('id', '?')}] {q.get('question', '')}")
+        for a in assumptions:
+            log(f"  if unanswered, the task assumes: {a}", prefix="·")
+    log(f"review {TASK_FILE}, then: python driver.py  (or `doctor` / `--dry-run` first)")
+    log(f"claude spend : ${cost:.4f}")
+    sys.exit(0)
+
+
+# ============================================================================
 # Main loop
 # ============================================================================
 
@@ -941,7 +1176,7 @@ def doctor():
 
     missing = [
         p
-        for p in ("plan.md", "triage.md", "verify.md", "execute.md")
+        for p in ("plan.md", "triage.md", "verify.md", "execute.md", "author.md")
         if not os.path.exists(os.path.join(PROMPTS_DIR, p))
     ]
     checks.append(
@@ -1125,6 +1360,12 @@ def main():
 
     if command == "doctor":
         doctor()  # prints the checklist and exits
+    if command == "author":
+        try:
+            author()  # drafts task.md from a story, then exits (never enters the loop)
+        except StepError as e:  # bad/empty/missing --from input — fail cleanly
+            log(str(e), prefix="✗")
+            sys.exit(1)
     if DRY_RUN:
         dry_run()  # prints the planned commands and exits
     try:
@@ -1406,15 +1647,17 @@ def parse_cli_overrides():
     global VERIFICATION_CLAUDE_MODEL_NAME, MAX_ITERATIONS, TEST_COMMANDS, REPO_ROOT
     global MAX_COST_USD, DRY_RUN
     global TASK_FILE, CONTEXT_FILE, WORK_DIR
+    global AUTHOR_MODEL_NAME, AUTHOR_STORY_SRC, AUTHOR_FORCE
     p = argparse.ArgumentParser(description="Agentic plan/execute/verify loop.")
     p.add_argument("--version", action="version", version=f"agents-collab {__version__}")
     p.add_argument(
         "command",
         nargs="?",
-        choices=["run", "doctor"],
+        choices=["run", "doctor", "author"],
         default="run",
-        help="'run' (default) the loop, or 'doctor' to preflight the environment "
-        "(checks git + the claude/executor CLIs and their versions) without spending.",
+        help="'run' (default) the loop; 'doctor' to preflight the environment "
+        "(checks git + the claude/executor CLIs and their versions) without spending; "
+        "'author' to draft task.md from a requirements/Jira story (--from/stdin).",
     )
     p.add_argument(
         "--dry-run",
@@ -1488,6 +1731,23 @@ def parse_cli_overrides():
         help="scratch dir for diff/test/raw artifacts (default: .loop). Override per unit "
         "so a loop's per-unit artifacts don't overwrite each other.",
     )
+    p.add_argument(
+        "--from",
+        dest="story_from",
+        default=None,
+        help="author: the requirements/Jira story file to turn into task.md. Omit "
+        "(or pass '-') to read the story from stdin when stdin isn't a TTY.",
+    )
+    p.add_argument(
+        "--author-model",
+        default=None,
+        help="Claude model for the `author` step (default: sonnet).",
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="author: overwrite an existing --task file without confirming.",
+    )
     a = p.parse_args()
 
     # Every model + run knob defaults to None so we can tell "unset" from "set to the
@@ -1537,6 +1797,13 @@ def parse_cli_overrides():
     CONTEXT_FILE = a.context
     WORK_DIR = a.work_dir
     DRY_RUN = a.dry_run
+    # Author knobs — set unconditionally (the interactive run-wizard above is gated on
+    # command == "run", so it never fires for `author`).
+    AUTHOR_MODEL_NAME = (
+        a.author_model if a.author_model is not None else AUTHOR_MODEL_NAME
+    )
+    AUTHOR_STORY_SRC = a.story_from
+    AUTHOR_FORCE = a.force
     return a.command
 
 
