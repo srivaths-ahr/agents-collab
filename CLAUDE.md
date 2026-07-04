@@ -25,6 +25,9 @@ python driver.py doctor
 # Preview every step's command + prompt without calling anything (no spend/edits):
 python driver.py --dry-run
 
+# Draft task.md from a Jira story / requirements doc (standalone; asks questions in a TTY):
+python driver.py author --from jira-STORY-123.txt   # or: pbpaste | python driver.py author
+
 # Run the loop (first run with no task.md scaffolds a template and exits):
 python driver.py \
   --plan-model opus \
@@ -54,10 +57,13 @@ with the I/O isolated in `prompt_run_settings`.
 
 ## Architecture
 
-Four stateless one-shot agents sequenced by one stateful driver. Everything between agents
+Four stateless one-shot agents sequenced by one stateful driver (plus a standalone
+`author` step that drafts `task.md` up front, outside the loop). Everything between agents
 is a **file on disk** — that is the entire contract; no agent holds memory between calls.
 
 ```
+AUTHOR   (Claude/author.md)  raw story (--from/stdin) + context → task.md, interactive
+   └── STANDALONE subcommand, NOT in the loop; run it to draft task.md, then `run`
 CLARIFY  (Claude/triage.md)  is task.md clear enough to plan? ask in TTY, else halt
 PLAN     (Claude/plan.md)    task.md + context.md (+codegraph) + last verdict → plan.md
 EXECUTE  (executor/execute.md) plan.md (+AGENTS.md) → edits files in the git workspace
@@ -71,7 +77,8 @@ Key files and their roles:
   file handoff, cost accounting, and the clarity gate. It does **not** decide "done" — the
   verifier does, in `verdict.json`; the driver just reads `verdict.status` and branches.
 - **`prompts/*.md`** — own agent _behavior_. `triage.md` (clarity gate), `plan.md`,
-  `execute.md` (handed to the executor), `verify.md` (verifier contract + verdict schema).
+  `execute.md` (handed to the executor), `verify.md` (verifier contract + verdict schema),
+  `author.md` (drafts `task.md` from a raw story; its readiness bar mirrors `triage.md`).
   Each is loaded via `--append-system-prompt` for the Claude steps.
 - **`executors.py`** — the pluggable EXECUTE step. Each backend is a pure
   `build(model, prompt) -> argv` function registered in the `EXECUTORS` dict. Backends
@@ -99,10 +106,19 @@ content, never committed into this tool repo.
   not in any agent's memory.
 - **One source of truth for what gets run.** The real steps and the `--dry-run` preview
   both build their commands from the same helpers — `build_claude_argv` and the
-  `*_instruction` builders (`plan_instruction`, `verify_instruction`, `triage_instruction`),
-  and each executor's adapter. Don't inline a command or prompt into a step; route it
-  through the builder so the preview can't lie. `doctor` likewise derives the executor's
+  `*_instruction` builders (`plan_instruction`, `verify_instruction`, `triage_instruction`,
+  `author_instruction`), and each executor's adapter. Don't inline a command or prompt
+  into a step; route it through the builder so the preview can't lie (`author --dry-run`
+  previews through `author_instruction` too). `doctor` likewise derives the executor's
   binary from `executors.EXECUTORS[backend](...)[0]`, not a hardcoded name.
+- **`author` stays an authoring aid, not a batch/orchestration tool.** It's a standalone
+  subcommand (not in the loop), reads a story from a **local file or stdin only** (no
+  network, no credentials — same invariants as the rest), and writes **one** `task.md`
+  (it flags a multi-unit split but never emits several tasks — see "no batch/story mode").
+  The driver writes `task.md` from the agent's returned markdown (agent has read-only
+  tools); its Q&A goes to `.loop/author_answers.md`, kept separate from the run's
+  `clarifications.md`. `author.md` is required by the `author` path and `doctor`, **not**
+  by `preflight`/`run`.
 
 ## Error/stop model
 

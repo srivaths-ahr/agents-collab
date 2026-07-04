@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -255,6 +256,130 @@ class TestClarifyGate(unittest.TestCase):
         # issues but nothing to ask -> surface & halt (not a silent proceed)
         with self.assertRaises(driver.NeedsClarification):
             self._gate({"ready": False, "questions": [], "issues": ["unclear X"]})
+
+
+class TestNormalizeAuthorResult(unittest.TestCase):
+    """The author agent's JSON is coerced into (draft, questions, assumptions,
+    multi_note, ready). Loose/partial output must degrade safely, never crash."""
+
+    def test_full_passthrough(self):
+        draft, q, a, note, ready = driver.normalize_author_result(
+            {
+                "ready": True,
+                "draft_task_md": "# Task",
+                "questions": [{"id": "Q1", "question": "x", "why": "y"}],
+                "assumptions_if_unanswered": ["assume z"],
+                "multi_unit": False,
+                "multi_unit_note": "",
+            }
+        )
+        self.assertEqual(draft, "# Task")
+        self.assertTrue(ready)
+        self.assertEqual(q[0]["question"], "x")
+        self.assertEqual(a, ["assume z"])
+        self.assertEqual(note, "")
+
+    def test_missing_draft_is_empty_string(self):
+        draft, *_ = driver.normalize_author_result({"ready": False})
+        self.assertEqual(draft, "")
+
+    def test_task_md_alias_accepted(self):
+        draft, *_ = driver.normalize_author_result({"task_md": "# T"})
+        self.assertEqual(draft, "# T")
+
+    def test_bare_string_questions_are_coerced(self):
+        # reuses normalize_question — a bare string becomes {id:"?", question, why:""}
+        _, q, _, _, _ = driver.normalize_author_result({"questions": ["just text"]})
+        self.assertEqual(q[0]["question"], "just text")
+        self.assertEqual(q[0]["id"], "?")
+
+    def test_multi_unit_true_gets_a_default_note(self):
+        _, _, _, note, _ = driver.normalize_author_result({"multi_unit": True})
+        self.assertTrue(note)  # non-empty default split note
+
+    def test_multi_unit_note_is_preserved(self):
+        _, _, _, note, _ = driver.normalize_author_result(
+            {"multi_unit": True, "multi_unit_note": "split into A then B"}
+        )
+        self.assertEqual(note, "split into A then B")
+
+    def test_ready_coerced_to_bool(self):
+        *_, ready = driver.normalize_author_result({})
+        self.assertIs(ready, False)
+
+
+class TestIsAffirmative(unittest.TestCase):
+    def test_yes_variants(self):
+        for s in ("y", "Y", "yes", "YES", "  yes  "):
+            self.assertTrue(driver.is_affirmative(s))
+
+    def test_no_variants(self):
+        for s in ("", "n", "N", "no", "nope", "maybe", "yeah"):
+            self.assertFalse(driver.is_affirmative(s))
+
+
+class TestAuthorLoop(unittest.TestCase):
+    """author()'s branching, with author_step faked (no subprocess) and the I/O
+    boundaries mocked. Locks the contract that DISTINGUISHES author from the clarity
+    gate: on a non-TTY run author WRITES a best-effort task.md and exits 0 — it never
+    halts with nothing — while a round that never yields a draft exits 1."""
+
+    def setUp(self):
+        self._orig = (
+            driver.author_step,
+            driver.read_story,
+            driver.write_file,
+            driver.INTERACTIVE_AUTHOR,
+            driver.AUTHOR_FORCE,
+        )
+        driver.INTERACTIVE_AUTHOR = False
+        driver.AUTHOR_FORCE = False
+        self.writes = {}
+        driver.read_story = lambda src: "raw story text"
+        driver.write_file = lambda path, content: self.writes.__setitem__(path, content)
+
+    def tearDown(self):
+        (
+            driver.author_step,
+            driver.read_story,
+            driver.write_file,
+            driver.INTERACTIVE_AUTHOR,
+            driver.AUTHOR_FORCE,
+        ) = self._orig
+
+    def _run_author(self, parsed):
+        driver.author_step = lambda: (parsed, 0.0)
+
+        # author.md present; task.md (and all else) absent -> no overwrite guard.
+        def exists(p):
+            return p.endswith("author.md")
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            with mock.patch.object(driver.os, "makedirs"), mock.patch.object(
+                driver.os.path, "exists", side_effect=exists
+            ):
+                with self.assertRaises(SystemExit) as cm:
+                    driver.author()
+        return cm.exception.code
+
+    def test_non_tty_writes_best_effort_and_exits_zero(self):
+        code = self._run_author(
+            {
+                "ready": False,
+                "draft_task_md": "# Task\n\n## Goal\ndo the thing\n",
+                "questions": [{"id": "Q1", "question": "which format?"}],
+            }
+        )
+        self.assertEqual(code, 0)  # did NOT halt with open questions
+        self.assertIn(driver.TASK_FILE, self.writes)
+        self.assertIn("do the thing", self.writes[driver.TASK_FILE])
+
+    def test_no_draft_ever_exits_one_without_writing_task(self):
+        code = self._run_author(
+            {"ready": False, "questions": [{"id": "Q1", "question": "?"}]}
+        )
+        self.assertEqual(code, 1)
+        self.assertNotIn(driver.TASK_FILE, self.writes)
 
 
 if __name__ == "__main__":

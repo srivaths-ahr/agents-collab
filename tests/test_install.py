@@ -58,11 +58,11 @@ class TestFileLists(unittest.TestCase):
         self.assertIsNone(seeds["task.md"])
         self.assertIsNone(seeds["clarifications.md"])
 
-    def test_shipped_prompts_are_the_four_contracts(self):
+    def test_shipped_prompts_are_the_contracts(self):
         # Derived from SRC/prompts, not hardcoded — install and uninstall share it.
         self.assertEqual(
             install.shipped_prompts(),
-            ["execute.md", "plan.md", "triage.md", "verify.md"],
+            ["author.md", "execute.md", "plan.md", "triage.md", "verify.md"],
         )
 
 
