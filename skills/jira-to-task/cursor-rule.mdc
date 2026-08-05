@@ -1,0 +1,29 @@
+---
+description: Turn a Jira story into a ready-to-run task.md for the agents-collab plan→execute→verify loop. Use when the user names a Jira issue key or URL, or asks to author a task, make a task.md, or get a ticket ready for the loop.
+alwaysApply: false
+---
+
+# jira-to-task
+
+Read `skills/jira-to-task/SKILL.md` in full and follow it exactly. It is the
+authoritative version of this workflow; this file only makes it discoverable to
+Cursor.
+
+Its reference material — read on demand, as `SKILL.md` directs:
+
+- `skills/jira-to-task/reference/jira-fields.md` — Jira MCP tool names,
+  field-by-field mapping, turning Jira ACs into checkable criteria
+- `skills/jira-to-task/reference/task-md-contract.md` — the exact `task.md` and
+  `clarifications.md` output shapes
+- `skills/jira-to-task/reference/example-walkthrough.md` — a full worked run
+
+If the skill folder lives somewhere other than `skills/jira-to-task/`, fix the five
+paths above to match — this file is a pointer and nothing else depends on it.
+
+Two things Cursor-specific:
+
+- You have repo access here, so Step 2 (grounding scope in real paths via
+  Grep/Glob) is **not** optional — an unresolved path in `## In scope` costs a
+  wasted loop iteration.
+- Ask the interview questions as a numbered list with lettered options and a stated
+  default, so the user can reply `1b, 2 default, 3 no` in one message.

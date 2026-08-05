@@ -6,7 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `agents-collab` is a single-purpose tool, not an application: a **plan → execute → verify**
 loop for autonomous code changes. It is a _template_ you copy into a target repo
-(`driver.py`, `executors.py`, `prompts/`, `AGENTS.md`) and run from that repo's root.
+(`driver.py`, `executors.py`, `prompts/`, `skills/`, `AGENTS.md`) and run from that
+repo's root.
 Claude does the judgment work (clarify, plan, verify); a pluggable coding CLI does the
 editing. There is no package, no server, no pip dependencies — **standard library only**.
 
@@ -62,6 +63,8 @@ Four stateless one-shot agents sequenced by one stateful driver (plus a standalo
 is a **file on disk** — that is the entire contract; no agent holds memory between calls.
 
 ```
+SKILL    (skills/jira-to-task) Jira MCP issue + repo → task.md + clarifications.md
+   └── HOST-SIDE, not the driver at all; runs in Claude Code/Cursor/Claude Desktop
 AUTHOR   (Claude/author.md)  raw story (--from/stdin) + context → task.md, interactive
    └── STANDALONE subcommand, NOT in the loop; run it to draft task.md, then `run`
 CLARIFY  (Claude/triage.md)  is task.md clear enough to plan? ask in TTY, else halt
@@ -83,6 +86,14 @@ Key files and their roles:
 - **`executors.py`** — the pluggable EXECUTE step. Each backend is a pure
   `build(model, prompt) -> argv` function registered in the `EXECUTORS` dict. Backends
   whose stdout is a JSON cost envelope go in `JSON_ENVELOPE_BACKENDS`.
+- **`skills/<name>/`** — agent skills for the _host_ (Claude Code, Cursor, Claude
+  Desktop), not for the driver. `skills/jira-to-task/` is the interactive front end
+  to `task.md`: it reaches Jira through the **host's** MCP connection, interviews the
+  human, and writes `task.md` + `clarifications.md`. `install.py` copies the folder
+  whole into the target as `skills/<name>/` and stops — it does **not** write into
+  `.claude/` or `.cursor/`; each skill's `INSTALL.md` tells the user how to place it.
+  The set is derived at runtime via `shipped_skills()`/`skill_files()`/`skill_dirs()`,
+  exactly as `shipped_prompts()` does.
 
 State lives in the driver and on disk: `task.md` (input, the source of truth), `context.md`
 (input, architecture map), `plan.md`, the staged git diff, `verdict.json`, plus the
@@ -119,6 +130,23 @@ content, never committed into this tool repo.
   tools); its Q&A goes to `.loop/author_answers.md`, kept separate from the run's
   `clarifications.md`. `author.md` is required by the `author` path and `doctor`, **not**
   by `preflight`/`run`.
+- **Skills are host-side authoring aids; the driver never reads them.** A skill may
+  reach the network only through the host's own MCP servers (that's the user's
+  connection, not the tool's — the stdlib-only/no-credentials invariants are about
+  `driver.py`, and they still hold). Skills write the loop's **inputs** —
+  `task.md`, `clarifications.md` — never `plan.md`/`verdict.json`, which the loop
+  regenerates and would overwrite. Like `author`, a skill emits **one** `task.md` and
+  flags a multi-unit split rather than decomposing. Keep the `task.md` readiness bar
+  in `SKILL.md` in sync with `prompts/triage.md`; they are the same gate.
+- **The installer does not write into the user's agent config.** Skills are copied to
+  `skills/<name>/` beside `driver.py` and placed by the user (`INSTALL.md` per skill);
+  nothing goes into `.claude/`, `.cursor/`, or `~/`. Unlike `prompts/` — which must be
+  clobbered on upgrade because `verify.md` and the driver's parser are one contract —
+  a skill carries no such contract and teams do edit them, so install and uninstall
+  both guard it with the same byte-compare (`_same_bytes`): untouched copies are
+  upgraded/removed, edited ones are KEPT and reported. Add a new skill by dropping a
+  folder with a `SKILL.md` into `skills/` — `shipped_skills()` picks it up, and both
+  install and uninstall follow with no further wiring.
 
 ## Error/stop model
 

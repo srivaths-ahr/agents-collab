@@ -72,11 +72,19 @@ seeds `AGENTS.md` + the `*.example` files **only if absent** — re-run it to up
 without clobbering your standing rules or an in-progress task. Prefer to do it by
 hand? Copy `{driver.py,executors.py,prompts,AGENTS.md}` into the repo yourself.
 
+It also drops the [`jira-to-task` skill](#the-jira-to-task-skill--interactive-mcp-connected-recommended)
+at `skills/jira-to-task/`, next to `driver.py` — and stops there. It does **not**
+write into your `.claude/` or `.cursor/`: which agent you use and where it reads
+skills from is your setup, not the installer's guess. The folder's `INSTALL.md` maps
+the options; copying it is a one-liner.
+
 It also adds the tool's own files + per-run artifacts to `.git/info/exclude` (a
 local ignore, not your tracked `.gitignore`), so the loop's `git add -A` stages
-**only your project edits** — not `driver.py`/`prompts/`/artifacts. Uninstall
-removes that block and unstages what it deletes, leaving `git status` clean. (Did a
-hand-copy instead? Add those paths to your ignores yourself.)
+**only your project edits** — not `driver.py`/`prompts/`/`skills/`/artifacts. Skills
+are listed **per skill** (`/skills/jira-to-task/`), never as `/skills/`, so your own
+top-level `skills/` is never shadowed — the same care already taken with `prompts/`.
+Uninstall removes that block and unstages what it deletes, leaving `git status`
+clean. (Did a hand-copy instead? Add those paths to your ignores yourself.)
 
 Run the loop from inside that repo (the prompt files are read by relative path).
 
@@ -93,9 +101,12 @@ python agents-collab/install.py --uninstall /path/to/your-repo            # appl
 It removes the tool files (`driver.py`, `executors.py`, the shipped `prompts/*.md`,
 `__pycache__`) and the generated artifacts (`.loop/`, `plan.md`, `verdict.json`,
 `clarifications_needed.json`) outright. Your content — `AGENTS.md`, `task.md`,
-`context.md`, `clarifications.md`, the `*.example` files — is **guarded**: it's
-removed only when it's **byte-identical to what the tool seeded** (an untouched
-copy). Anything you wrote or changed — including a pre-existing `AGENTS.md` you had
+`context.md`, `clarifications.md`, the `*.example` files, **and `skills/`** — is
+**guarded**: it's removed only when it's **byte-identical to what the tool seeded**
+(an untouched copy). Skills are checked file by file, and the emptied directories
+dropped after, so a `SKILL.md` you tuned survives with its folder. Copies you placed
+elsewhere (`.claude/skills/`, `~/.claude/skills/`) are never touched — the installer
+doesn't know about them. Anything you wrote or changed — including a pre-existing `AGENTS.md` you had
 before installing — is **kept** and reported, so your own work is never deleted by
 surprise (being merely committed is *not* reason enough to remove it). Pass
 `--force` to remove your content too. Always preview with `--dry-run` first.
@@ -110,9 +121,10 @@ python driver.py
 #    task.md is auto-scaffolded above; context.md is NOT — you must add it.
 #      cp task.md.example task.md        # then fill in goal + checkable acceptance criteria
 #      cp context.md.example context.md  # then describe your codebase (required, not optional)
-#    Have a Jira story or requirements doc instead of a written task.md? Let Claude
-#    draft one for you (see "Authoring task.md" below):
-#      python driver.py author --from jira-STORY-123.txt   # asks questions, writes task.md
+#    Working from a Jira ticket? Two ways to get a task.md (see "Authoring task.md"):
+#      - the jira-to-task SKILL, in Claude Code / Cursor / Claude Desktop — pulls the
+#        issue over your Jira MCP and interviews you (recommended)
+#      - python driver.py author --from jira-STORY-123.txt   # terminal, local file only
 
 # 3) check your environment is ready (no spend, no edits)
 python driver.py doctor
@@ -136,8 +148,50 @@ reaches the cap (`0` = no limit).
 ### Authoring `task.md` from a Jira story or requirements doc
 
 The whole loop is only as good as `task.md` — a sharp, checkable task converges in
-fewer, cheaper iterations. If what you have is a Jira story or a requirements doc
-rather than a written task, let Claude draft one:
+fewer, cheaper iterations. If what you have is a Jira story rather than a written
+task, there are two ways to get one, and they hold themselves to the same bar.
+
+#### The `jira-to-task` skill — interactive, MCP-connected (recommended)
+
+`install.py` drops a self-contained agent skill at **`skills/jira-to-task/`**, next
+to `driver.py`. Copy that folder to wherever your agent reads skills from — one
+command, covered per host in the folder's `INSTALL.md`:
+
+| Host | Where you put it | How you invoke it |
+|---|---|---|
+| Claude Code | `.claude/skills/` (this repo) or `~/.claude/skills/` (everywhere) | `/jira-to-task PROJ-123`, or just ask |
+| Cursor | copy `cursor-rule.mdc` → `.cursor/rules/`, leave the folder put | "turn PROJ-123 into a task.md" |
+| Claude Desktop | add the folder in Settings (folder picker or zip) | "turn PROJ-123 into a task.md" |
+
+The installer deliberately stops at the copy. Your `.claude/` and `.cursor/` are
+yours — which agent you run, and whether its skills live per-repo or globally, isn't
+something an installer should decide for you.
+
+It **pulls the issue through whatever Jira MCP server you have connected** — no
+export, no copy-paste — reads the description, acceptance criteria, subtasks, linked
+issues, and the comments (where the real decisions usually are). Then it grounds the
+scope in real paths from your repo, interviews you in rounds of at most four
+questions — each with concrete options and a stated default you can wave through —
+shows you the draft, and takes edits in plain language before writing anything.
+
+It writes **`task.md` plus `clarifications.md`** (every question and answer,
+including the defaults it assumed). The clarity gate and the planner both read
+`clarifications.md` as authoritative, so your answers survive into iteration 5
+without you in the room. It does **not** write `plan.md` — the loop regenerates that
+every iteration.
+
+Jira access is **read-only**: it never transitions a ticket or posts a comment
+unless you ask in the conversation and confirm. The MCP connection is your host's —
+`driver.py` still touches no network and stores no credentials.
+
+Re-running `install.py` upgrades the folder **per file, only where your copy is
+untouched**; anything you edited is kept and its path printed, so a house-style
+`SKILL.md` survives an upgrade. Copies you placed elsewhere are yours to update.
+
+#### `driver.py author` — the terminal path, no MCP needed
+
+Same readiness bar, no network: a bounded interactive Claude run over a story you
+already have on disk.
 
 ```bash
 python driver.py author --from jira-STORY-123.txt   # or: pbpaste | python driver.py author
@@ -152,7 +206,9 @@ with few or no follow-ups.
 
 - **Input is a local file or stdin only** — no Jira API, no network, no stored
   credentials (the tool's standing invariants). Export or copy the story into a text
-  file, or pipe it in.
+  file, or pipe it in. Want it to fetch the ticket for you? That's the
+  `jira-to-task` skill above, where the MCP connection is your host's, not the
+  driver's.
 - **`--from <path>` enables the interactive Q&A**; piping the story on **stdin** makes
   the run one-shot best-effort (stdin is then a non-TTY, so it can't prompt) — it still
   writes the best draft it can and prints any open questions.
