@@ -65,6 +65,37 @@ class TestFileLists(unittest.TestCase):
             ["author.md", "execute.md", "plan.md", "triage.md", "verify.md"],
         )
 
+    def test_shipped_skills_need_a_skill_md(self):
+        # Derived from SRC/skills/*/SKILL.md — a dir without one isn't a skill.
+        self.assertIn("jira-to-task", install.shipped_skills())
+
+    def test_skill_ships_as_one_whole_folder(self):
+        # The user places the folder themselves, so everything travels together:
+        # body, INSTALL.md (how to place it), reference/, and the Cursor pointer.
+        rels = install.skill_files("jira-to-task")
+        for expected in ("SKILL.md", "INSTALL.md", "cursor-rule.mdc"):
+            self.assertIn(expected, rels)
+        self.assertTrue(
+            any(r.startswith("reference/") for r in rels),
+            "expected the skill's reference/ files to ship too",
+        )
+        # forward-slash relpaths, so one list works on Windows too
+        self.assertNotIn("\\", "".join(rels))
+        self.assertEqual(rels, sorted(rels))
+
+    def test_skill_files_of_unknown_skill_is_empty(self):
+        self.assertEqual(install.skill_files("no-such-skill"), [])
+
+    def test_skill_dirs_are_deepest_first(self):
+        # Uninstall rmdirs in this order, so a nested dir is empty when it's tried.
+        dirs = install.skill_dirs("jira-to-task")
+        self.assertIn("reference", dirs)
+        depths = [d.count("/") for d in dirs]
+        self.assertEqual(depths, sorted(depths, reverse=True))
+
+    def test_skill_dirs_of_flat_or_unknown_skill_is_empty(self):
+        self.assertEqual(install.skill_dirs("no-such-skill"), [])
+
 
 class TestRenderGitExclude(unittest.TestCase):
     PATS = ["/driver.py", "/prompts/plan.md", "/.loop/"]
@@ -114,6 +145,13 @@ class TestExcludePatterns(unittest.TestCase):
         self.assertIn("/.loop/", pats)
         self.assertIn("/prompts/plan.md", pats)  # per-file, not the whole dir
         self.assertNotIn("/prompts/", pats)
+        # skills: per-skill, not the whole /skills/ dir, so a user's own top-level
+        # skills/ is never shadowed. The installer writes nothing under .claude/ or
+        # .cursor/, so it must never exclude anything there either.
+        self.assertIn("/skills/jira-to-task/", pats)
+        self.assertNotIn("/skills/", pats)
+        for theirs in ("/.claude/", "/.cursor/", "/.claude/skills/jira-to-task/"):
+            self.assertNotIn(theirs, pats)
         # user content the installer must NOT hide from git
         for user in ("/task.md", "/context.md", "/AGENTS.md", "/clarifications.md"):
             self.assertNotIn(user, pats)

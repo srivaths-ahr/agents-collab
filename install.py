@@ -16,12 +16,19 @@ Uninstall (the inverse of install; shares the same file list):
   python install.py --uninstall --dry-run ../path/to/target-repo   # show, delete nothing
   python install.py --uninstall --force   ../path/to/target-repo   # also remove modified/untracked user files
 
-Install copies the tool files (driver.py, executors.py, prompts/) and seeds
+Install copies the tool files (driver.py, executors.py, prompts/, skills/) and seeds
 AGENTS.md + the *.example references only if absent (never clobbers your standing
 rules or an in-progress task). Idempotent: safe to re-run to upgrade.
 
+Agent skills land as skills/<name>/, next to driver.py — we do not write into your
+.claude/ or .cursor/. Which host you use and where it reads skills from is your call;
+each skill's INSTALL.md maps the options. They upgrade per file on re-install, but
+only where our last copy is untouched — a file you edited is kept and reported.
+
 Uninstall removes, in tiers:
   tool      — driver.py, executors.py, the shipped prompts/*.md, __pycache__
+  skills    — skills/<name>/, guarded per file like user content below (edited
+              files are KEPT); empty dirs are then dropped
   artifacts — .loop/, plan.md, verdict.json, clarifications_needed.json
   user      — AGENTS.md, task.md, context.md, clarifications.md, *.example, but
               ONLY when byte-identical to the seed (an untouched tool copy) or
@@ -54,6 +61,14 @@ SRC = os.path.dirname(os.path.abspath(__file__))
 # prompt set is derived from SRC/prompts at runtime (see shipped_prompts), not
 # hardcoded, so install and uninstall share one source of truth.
 TOOL_FILES = ["driver.py", "executors.py"]
+
+# Agent skills (SRC/skills/<name>/SKILL.md + reference/). Copied into the target as
+# skills/<name>/, alongside driver.py — NOT into .claude/ or .cursor/. Where a user
+# keeps their skills (per-repo, global, or uploaded to a desktop app) is their call,
+# and their config dirs are not ours to write into; each skill's INSTALL.md tells
+# them how to place it. Like prompts, the set is derived at runtime, so install and
+# uninstall share one source of truth.
+SKILLS_DIRNAME = "skills"
 
 # Generated runtime artifacts (gitignored; removed outright on uninstall).
 ARTIFACTS = [".loop", "plan.md", "verdict.json", "clarifications_needed.json"]
@@ -141,6 +156,38 @@ def shipped_prompts():
     return sorted(f for f in os.listdir(d) if f.endswith(".md"))
 
 
+def shipped_skills():
+    """Names of the agent skills this tool ships — the SRC/skills/* directories that
+    actually contain a SKILL.md, sorted. A dir without one isn't a skill."""
+    d = os.path.join(SRC, SKILLS_DIRNAME)
+    if not os.path.isdir(d):
+        return []
+    return sorted(
+        n for n in os.listdir(d)
+        if os.path.isfile(os.path.join(d, n, "SKILL.md"))
+    )
+
+
+def skill_files(name):
+    """Forward-slash relpaths of every file inside skills/<name>/, sorted. The whole
+    folder ships as one unit — body, reference/, INSTALL.md, and the Cursor pointer
+    rule — because the user, not the installer, decides where it ends up."""
+    root = os.path.join(SRC, SKILLS_DIRNAME, name)
+    rels = []
+    for dirpath, _dirs, files in os.walk(root):
+        for f in files:
+            rel = os.path.relpath(os.path.join(dirpath, f), root)
+            rels.append(rel.replace(os.sep, "/"))
+    return sorted(rels)
+
+
+def skill_dirs(name):
+    """Forward-slash relpaths of subdirectories inside skills/<name>/, deepest first
+    — the order uninstall must remove them in for each to be empty when it's tried."""
+    dirs = {os.path.dirname(r) for r in skill_files(name) if "/" in r}
+    return sorted(dirs, key=lambda d: (-d.count("/"), d))
+
+
 def _ospath(target, rel):
     """Join a forward-slash relpath onto target as a native OS path."""
     return os.path.join(target, *rel.split("/"))
@@ -153,15 +200,21 @@ def _delete(path):
         os.remove(path)
 
 
+def _same_bytes(a, b):
+    """True if both paths are existing files with identical contents. The one test
+    that reliably means "the tool owns this copy" — used in both directions: install
+    won't overwrite a file that fails it, uninstall won't delete one."""
+    return os.path.isfile(a) and os.path.isfile(b) and filecmp.cmp(a, b, shallow=False)
+
+
 def _matches_seed(abs_path, seed):
     """True if abs_path is byte-identical to the installer's seed (so it's an
-    untouched copy and safe to remove). Reads files; no subprocess."""
+    untouched copy and safe to remove). `seed` is a forward-slash relpath under SRC,
+    so nested seeds (skills/<name>/reference/x.md) work on Windows too. Reads files;
+    no subprocess."""
     if not seed:
         return False
-    seed_path = os.path.join(SRC, seed)
-    if not (os.path.isfile(seed_path) and os.path.isfile(abs_path)):
-        return False
-    return filecmp.cmp(abs_path, seed_path, shallow=False)
+    return _same_bytes(abs_path, os.path.join(SRC, *seed.split("/")))
 
 
 def _exclude_patterns():
@@ -171,6 +224,9 @@ def _exclude_patterns():
     shadowed."""
     pats = ["/driver.py", "/executors.py", "/__pycache__/"]
     pats += [f"/prompts/{p}" for p in shipped_prompts()]
+    # Skills likewise per-skill (not the whole /skills/ dir), so a user's own
+    # top-level skills/ is never shadowed — same reasoning as prompts above.
+    pats += [f"/{SKILLS_DIRNAME}/{s}/" for s in shipped_skills()]
     pats += ["/.loop/", "/plan.md", "/verdict.json", "/clarifications_needed.json"]
     return pats
 
@@ -234,6 +290,28 @@ def install(target):
         )
     print("  ✓ driver.py, executors.py, prompts/")
 
+    # Agent skills: dropped next to driver.py for the user to place themselves (each
+    # skill's INSTALL.md says where). Upgraded per file, but only where our last copy
+    # is still byte-identical — a file the user edited is KEPT, because unlike
+    # prompts/ a skill carries no contract the driver must stay in step with, and
+    # teams do customise them.
+    for name in shipped_skills():
+        src_root = os.path.join(SRC, SKILLS_DIRNAME, name)
+        written, kept = 0, []
+        for rel in skill_files(name):
+            src = os.path.join(src_root, *rel.split("/"))
+            dst = _ospath(target, f"{SKILLS_DIRNAME}/{name}/{rel}")
+            if os.path.exists(dst) and not _same_bytes(dst, src):
+                kept.append(rel)
+                continue
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+            written += 1
+        print(f"  ✓ {SKILLS_DIRNAME}/{name}/ ({written} file(s)) — see its INSTALL.md")
+        for rel in kept:
+            print(f"  · KEPT {SKILLS_DIRNAME}/{name}/{rel} (your edits; the new "
+                  f"version is in this clone at {SKILLS_DIRNAME}/{name}/{rel})")
+
     # User-owned files: seed only if absent (never clobber).
     for name in SEED_FILES:
         dst = os.path.join(target, name)
@@ -254,6 +332,9 @@ def install(target):
         f"  cp task.md.example task.md        # then fill in goal + acceptance criteria\n"
         f"  cp context.md.example context.md  # then describe your codebase\n"
         f"  python driver.py --help           # see flags, pick models/executor\n\n"
+        f"Working from a Jira ticket? skills/jira-to-task/ writes task.md for you,\n"
+        f"pulling the issue over your own Jira MCP. Read its INSTALL.md to add it to\n"
+        f"Claude Code, Cursor, or Claude Desktop — where skills live is your call.\n\n"
         f"Run on a dedicated branch or git worktree — edits are auto-applied. "
         f"See SECURITY.md."
     )
@@ -276,7 +357,8 @@ def _remove_path(target, rel, dry):
 
 
 def _rmdir_if_empty(target, rel, dry):
-    """Drop prompts/ only if nothing the user added is left in it."""
+    """Drop a container dir (prompts/, skills/, skills/<name>/reference/ …) only if
+    nothing the user added — or that we guarded and kept — is left in it."""
     abs_path = _ospath(target, rel)
     if not os.path.isdir(abs_path):
         return
@@ -330,6 +412,22 @@ def uninstall(target, dry=False, force=False):
         deleted.append(_remove_path(target, f"prompts/{p}", dry))
     _rmdir_if_empty(target, "prompts", dry)
     deleted.append(_remove_path(target, "__pycache__", dry))
+
+    # Skills are guarded like user content, not removed outright like prompts: the
+    # target copy is the one a user may have edited before placing it. Byte-identical
+    # files go; anything they touched is KEPT and reported. The seed relpath equals
+    # the target relpath, since the target layout mirrors this clone's.
+    if shipped_skills():
+        print("skills (guarded — your edits are kept):")
+    for s in shipped_skills():
+        for rel in skill_files(s):
+            p = f"{SKILLS_DIRNAME}/{s}/{rel}"
+            deleted.append(_remove_user(target, p, p, dry, force))
+        for d in skill_dirs(s):  # deepest first, so each is empty when tried
+            _rmdir_if_empty(target, f"{SKILLS_DIRNAME}/{s}/{d}", dry)
+        _rmdir_if_empty(target, f"{SKILLS_DIRNAME}/{s}", dry)
+    if shipped_skills():
+        _rmdir_if_empty(target, SKILLS_DIRNAME, dry)
 
     print("generated artifacts:")
     for name in ARTIFACTS:

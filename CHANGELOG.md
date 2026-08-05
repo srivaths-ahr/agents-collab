@@ -12,6 +12,41 @@ when an executor stops behaving.
 
 ### Added
 
+- **`jira-to-task` agent skill — a Jira ticket to a `task.md`, interactively, in the
+  tool you already use.** `driver.py author` works, but it's a one-shot terminal pass
+  over a story you had to export yourself. The skill is the same job done where your
+  agent already lives: it **pulls the issue over your host's Jira MCP** (description,
+  acceptance criteria, subtasks, linked issues, and the *comments*, where the real
+  decisions usually are), grounds `## In scope` in paths it greps for in the repo,
+  then interviews you in rounds of at most four questions — each with concrete
+  lettered options and a stated default you can wave through — and shows the draft for
+  edits in plain language before writing anything. It writes `task.md` **and**
+  `clarifications.md` (every question, answer, and assumed default), which the clarity
+  gate and planner both read as authoritative, so your answers survive to iteration 5
+  without you in the room. It never writes `plan.md` — the loop regenerates that every
+  iteration. Ships as `skills/jira-to-task/` with `SKILL.md`, an `INSTALL.md` mapping
+  the three hosts, a `cursor-rule.mdc` pointer, and `reference/` files (Jira MCP tool
+  names and field mapping, the exact output contract, a full worked run) that
+  `SKILL.md` reads on demand. Holds the same invariants as the rest of the tool: Jira
+  access is **read-only** unless you ask and confirm; the MCP connection is your
+  host's, so `driver.py` still touches no network and stores no credentials; and it
+  emits **one** `task.md`, flagging a multi-unit split rather than decomposing.
+- **`install.py` ships agent skills — to your repo, not into your agent's config.**
+  Skills land as `skills/<name>/` beside `driver.py`, and the installer stops there:
+  nothing is written to `.claude/`, `.cursor/`, or `~/`. Which agent you run and
+  whether its skills live per-repo or globally is your setup, not an installer's guess
+  — each skill's `INSTALL.md` maps the options and the copy is a one-liner. The
+  shipped set is derived at runtime (`shipped_skills()` / `skill_files()` /
+  `skill_dirs()`), so install and uninstall share one source of truth and a new skill
+  needs only a folder with a `SKILL.md`. Unlike `prompts/` — clobbered on upgrade
+  because `verify.md` and the driver's parser are one contract — skills carry no such
+  contract and teams do edit them, so **both directions are guarded by the same
+  byte-compare** (`_same_bytes`): re-installing upgrades only the files still identical
+  to what we shipped and reports the ones you changed, and uninstall removes only
+  untouched copies, keeping an edited `SKILL.md` with its folder. Skills are added to
+  `.git/info/exclude` **per skill** (`/skills/jira-to-task/`, never `/skills/`), so a
+  project's own top-level `skills/` is never shadowed — the same care already taken
+  with `prompts/`.
 - **`author` subcommand — turn a Jira story / requirements doc into a `task.md`.**
   `python driver.py author --from STORY-123.txt` (or pipe the story on stdin) runs an
   interactive Claude pass that drafts a well-formed `task.md` — unambiguous goal,
