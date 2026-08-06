@@ -91,6 +91,10 @@ MAX_ITERATIONS = 8  # hard cap; loop stops even if not "pass"
 MAX_IDENTICAL_FAILURES = (
     2  # stop if the loop stalls (same failure / no new diff) this many times
 )
+MAX_PHASE_ATTEMPTS = 2  # re-entries at one phase before a resume backs up to the
+# previous one. MAX_IDENTICAL_FAILURES catches a loop going nowhere WITHIN a run
+# (verify keeps returning fail); this catches one going nowhere ACROSS runs (the
+# same phase crashes every time), where retrying it identically cannot help.
 MAX_COST_USD = 0.0  # hard cap on cumulative Claude spend; 0.0 = no dollar limit
 
 # ---- TEST / GATE COMMANDS (the objective half of verification) ----
@@ -102,6 +106,7 @@ TEST_COMMANDS = []  # e.g. ["ruff check .", "pytest -q"]  |  ["swift build", "sw
 
 # ---- MODES (set via CLI; see parse_cli_overrides) ----
 DRY_RUN = False  # --dry-run: print every command + prompt, but run/spend/edit nothing
+FRESH = False  # --fresh: ignore any resume checkpoint and start the run from scratch
 
 # ---- PATHS (relative to REPO_ROOT) ----
 REPO_ROOT = "."
@@ -115,6 +120,8 @@ CLARIFY_NEEDED_FILE = (
 )
 PROMPTS_DIR = "prompts"
 WORK_DIR = ".loop"  # scratch: diff.patch, test_output.txt, logs, last raw outputs
+STATE_FILE = "state.json"  # basename under WORK_DIR — the resume checkpoint
+STATE_VERSION = 1  # bump when the state.json shape changes; older files are ignored
 
 # ---- TIMEOUTS (seconds) — protect against the cursor-agent headless hang ----
 CURSOR_TIMEOUT = 1200
@@ -1115,6 +1122,197 @@ def stall_signature(verdict, diff_path):
 
 
 # ============================================================================
+# Resume checkpoint (.loop/state.json) — so a failed run doesn't re-buy work
+#
+# Without this, a second `python driver.py` after a crash re-runs the clarity gate,
+# re-plans, and re-executes. Worse than the wasted spend: capture_baseline() would
+# snapshot a tree that ALREADY contains the executor's partial edits, so they vanish
+# from `git diff --cached <baseline>` and the verifier scores a truncated diff —
+# failing criteria that were in fact met, and buying yet another iteration.
+#
+# The driver stays the only stateful actor (agents remain stateless one-shots); this
+# is simply that state surviving the process. Decisions are pure (resume_decision);
+# all file/git I/O happens in the callers and is passed in.
+# ============================================================================
+
+# The loop's phases, in order. Backing up means moving one step left.
+PHASE_ORDER = ("plan", "execute", "verify")
+
+# Which steps a resume at each phase can skip, in loop order.
+SKIPPED_BY_PHASE = {
+    "plan": ("clarify",),
+    "execute": ("clarify", "plan"),
+    "verify": ("clarify", "plan", "execute"),
+}
+SKIP_REASON = {
+    "clarify": "passed on identical inputs",
+    "plan": f"{PLAN_FILE} still valid",
+    "execute": "edits already applied",
+}
+
+
+def input_fingerprint(task_text, context_text, clarify_text):
+    """One hash over the three human inputs the clarity gate and planner read. If it
+    changes, every conclusion drawn from them is stale — that's what invalidates a
+    checkpoint when someone edits task.md between runs. Pure."""
+    blob = "\x00".join((task_text, context_text, clarify_text))
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def resume_decision(state, *, fingerprint, head, fresh):
+    """Decide what a new invocation may reuse from a prior run. PURE — the caller
+    reads state.json, hashes the inputs, and asks git for HEAD, then passes them in.
+
+    Returns (action, reason, state): action is "resume" (re-enter at state["phase"]
+    of state["iteration"]) or "fresh" (start over; state is None). Every rejection
+    carries a reason, because silently discarding a checkpoint is how a user ends up
+    paying twice and not knowing why."""
+    if fresh:
+        return ("fresh", "--fresh requested", None)
+    if not state:
+        return ("fresh", "no checkpoint from a prior run", None)
+    if state.get("version") != STATE_VERSION:
+        return ("fresh", "checkpoint was written by a different driver version", None)
+    if state.get("phase") not in SKIPPED_BY_PHASE:
+        return ("fresh", "checkpoint names no phase to resume at", None)
+    if not state.get("baseline"):
+        return ("fresh", "checkpoint has no baseline snapshot", None)
+    if state.get("inputs") != fingerprint:
+        return (
+            "fresh",
+            f"{TASK_FILE} / {CONTEXT_FILE} / {CLARIFY_FILE} changed since that run",
+            None,
+        )
+    if state.get("head") != head:
+        # A commit, reset, or branch switch moves what the baseline tree means, so the
+        # diff it anchors would be nonsense. Cheaper to re-plan than to verify a lie.
+        return ("fresh", "git HEAD moved since that run", None)
+    it = state.get("iteration")
+    if not isinstance(it, int) or it < 1:
+        return ("fresh", "checkpoint has no usable iteration number", None)
+    return ("resume", f"iteration {it}, stopped in {state['phase']}", state)
+
+
+def resume_entry(phase, *, attempts, have_plan, have_diff, max_attempts=None):
+    """Where a resume should ACTUALLY re-enter the loop. PURE — the caller probes the
+    artifacts and passes the answers in.
+
+    The recorded phase says where the run died. It does NOT say that re-entering
+    there can work, and re-entering a step that is bound to fail is exactly the spend
+    this checkpoint exists to avoid. Two things override it, both backing the resume
+    UP the pipeline so the next attempt differs from the last:
+
+      - **A missing input.** EXECUTE's only input is plan.md; VERIFY's is the staged
+        diff. Resuming into a step whose input isn't there buys the same failure over
+        again — or, for VERIFY, buys a verdict of "nothing changed" and a whole
+        iteration to fix it.
+      - **A phase that keeps dying.** Retrying a deterministic executor failure a
+        third time changes nothing; a different plan might. Same for a verifier that
+        can't be parsed: a different diff is the only new input available.
+
+    Returns (phase, notes). Every step back gets a note, because a resume that
+    quietly decides to re-plan is a resume that spends money without saying why."""
+    if max_attempts is None:
+        max_attempts = MAX_PHASE_ATTEMPTS
+    notes = []
+    cur = phase
+    for _ in range(len(PHASE_ORDER)):  # each pass moves left or stops — bounded
+        i = PHASE_ORDER.index(cur)
+        if cur == "verify" and not have_diff:
+            notes.append("no staged edits to verify — backing up to EXECUTE")
+            cur = "execute"
+            continue
+        if cur == "execute" and not have_plan:
+            notes.append(f"{PLAN_FILE} is missing or empty — backing up to PLAN")
+            cur = "plan"
+            continue
+        tries = attempts.get(cur, 0)
+        if tries >= max_attempts and i > 0:
+            prev = PHASE_ORDER[i - 1]
+            notes.append(
+                f"{cur.upper()} failed {tries}x — backing up to {prev.upper()}; "
+                f"retrying it unchanged would only fail again"
+            )
+            cur = prev
+            continue
+        break
+    return cur, notes
+
+
+def plan_artifact_ok():
+    """Does plan.md exist with content? It is EXECUTE's only input, so 'skip PLAN,
+    the plan is still valid' has to be checked rather than assumed."""
+    try:
+        return bool(read_file(os.path.join(REPO_ROOT, PLAN_FILE)).strip())
+    except FileNotFoundError:
+        return False
+
+
+def has_staged_edits(baseline):
+    """Did the executor actually change anything vs the run's baseline? VERIFY has
+    nothing to score without it. Stages (like every other diff call here); never
+    commits."""
+    try:
+        return bool(staged_diff_against(baseline).strip())
+    except StepError:
+        return False
+
+
+def state_path():
+    return os.path.join(REPO_ROOT, WORK_DIR, STATE_FILE)
+
+
+def read_state():
+    """The prior run's checkpoint, or None. A missing, unreadable, or corrupt file is
+    simply "no checkpoint" — never a crash, since this runs before any real work."""
+    try:
+        with open(state_path(), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def write_state(**fields):
+    """Checkpoint the run. Written via a temp file + os.replace so a driver killed
+    mid-write leaves the previous checkpoint intact rather than half a JSON file."""
+    os.makedirs(os.path.join(REPO_ROOT, WORK_DIR), exist_ok=True)
+    tmp = state_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"version": STATE_VERSION, **fields}, f, indent=2)
+    os.replace(tmp, state_path())
+
+
+def clear_state():
+    """Drop the checkpoint — on a pass (the run is over) or when it can't be used."""
+    try:
+        os.remove(state_path())
+    except OSError:
+        pass
+
+
+def current_fingerprint():
+    """input_fingerprint over the three files as they are now. Missing files hash as
+    empty, so creating a previously-absent clarifications.md invalidates correctly."""
+
+    def _read(p):
+        try:
+            return read_file(os.path.join(REPO_ROOT, p))
+        except FileNotFoundError:
+            return ""
+
+    return input_fingerprint(_read(TASK_FILE), _read(CONTEXT_FILE), _read(CLARIFY_FILE))
+
+
+def current_head():
+    """HEAD's sha, or "" for a repo with no commits yet (which write-tree still
+    handles, so an empty string is a legitimate value to record and compare)."""
+    try:
+        return git("rev-parse", "HEAD").strip()
+    except StepError:
+        return ""
+
+
+# ============================================================================
 # Subcommands / modes (doctor, dry-run) — run before any spend
 # ============================================================================
 
@@ -1377,21 +1575,73 @@ def main():
         sys.exit(1)
 
     total_cost = 0.0  # Claude spend only; non-Claude executors bill separately
+    prev_verdict = None
+    last_stall = None
+    stall_count = 0
+    resume_phase = None
+    start_iter = 1
+    attempts = {}  # phase -> consecutive entries that never completed
 
-    # GUARDRAIL — clarity gate: never plan against a vague or missing task.
+    # Can we pick up where a previous invocation died, instead of re-buying the
+    # clarity gate, the plan, and possibly the whole executor run?
+    fingerprint = current_fingerprint()
     try:
-        total_cost += clarify_gate()
-    except NeedsClarification as nc:
-        halt_needs_clarification(nc, total_cost)  # writes file, prints, exits(2)
-    except StepError as e:
-        log(str(e), prefix="✗")
-        sys.exit(1)
-
-    try:
-        baseline = capture_baseline()
+        head = current_head()
     except StepError as e:  # a broken git repo — fail cleanly, no traceback
         log(str(e), prefix="✗")
         sys.exit(1)
+    prior = read_state()
+    action, why, prior = resume_decision(
+        prior, fingerprint=fingerprint, head=head, fresh=FRESH
+    )
+
+    if action == "resume":
+        banner("RESUMING")
+        log(f"{WORK_DIR}/{STATE_FILE}: {why}")
+        baseline = prior["baseline"]
+        start_iter = prior["iteration"]
+        total_cost = float(prior.get("total_cost") or 0.0)
+        prev_verdict = prior.get("prev_verdict")
+        stall = prior.get("stall") or {}
+        last_stall = stall.get("sig")
+        stall_count = int(stall.get("count") or 0)
+        attempts = dict(prior.get("attempts") or {})
+        log(f"inputs unchanged — reusing baseline {baseline[:10]}")
+        # The recorded phase is where we died; this is where it's worth restarting,
+        # given what the artifacts show and how prior attempts at it went.
+        resume_phase, notes = resume_entry(
+            prior["phase"],
+            attempts=attempts,
+            have_plan=plan_artifact_ok(),
+            have_diff=has_staged_edits(baseline),
+        )
+        for note in notes:
+            log(note, prefix="↻")
+        for step in SKIPPED_BY_PHASE[resume_phase]:
+            log(f"skipping {step.upper():<8}({SKIP_REASON[step]})")
+        cap_note = f" / ${MAX_COST_USD:.2f} cap" if MAX_COST_USD > 0 else ""
+        # Carried forward so --max-cost-usd/--max-iterations bound the WORK, not each
+        # invocation — otherwise a crash-loop silently resets both caps to zero.
+        log(f"carried spend: ${total_cost:.4f}{cap_note}")
+    else:
+        if read_state():  # there was a checkpoint; say why we're not using it
+            log(f"ignoring the checkpoint — {why}", prefix="↻")
+        clear_state()
+
+        # GUARDRAIL — clarity gate: never plan against a vague or missing task.
+        try:
+            total_cost += clarify_gate()
+        except NeedsClarification as nc:
+            halt_needs_clarification(nc, total_cost)  # writes file, prints, exits(2)
+        except StepError as e:
+            log(str(e), prefix="✗")
+            sys.exit(1)
+
+        try:
+            baseline = capture_baseline()
+        except StepError as e:  # a broken git repo — fail cleanly, no traceback
+            log(str(e), prefix="✗")
+            sys.exit(1)
     log(f"baseline snapshot: {baseline[:10]}  | max_iterations={MAX_ITERATIONS}")
     cap = f"${MAX_COST_USD:.2f}" if MAX_COST_USD > 0 else "none"
     log(
@@ -1400,22 +1650,51 @@ def main():
         f"{EXECUTOR_BACKEND}:{IMPLEMENTATION_MODEL_NAME}  |  cost cap={cap}"
     )
 
-    prev_verdict = None
-    last_stall = None
-    stall_count = 0
     final_status = "incomplete"
 
-    for it in range(1, MAX_ITERATIONS + 1):
+    def enter(phase, iteration):
+        """Record the phase we're ABOUT to run, with the spend banked so far, so a
+        crash inside it resumes there rather than at iteration 1. Also counts the
+        attempt: a phase entered MAX_PHASE_ATTEMPTS times without ever completing is
+        one the next resume backs away from. Reads the enclosing locals at call time,
+        so each call captures the current cost/verdict/stall."""
+        attempts[phase] = attempts.get(phase, 0) + 1
+        write_state(
+            baseline=baseline,
+            head=head,
+            inputs=fingerprint,
+            iteration=iteration,
+            phase=phase,
+            total_cost=total_cost,
+            prev_verdict=prev_verdict,
+            stall={"sig": last_stall, "count": stall_count},
+            attempts=attempts,
+        )
+
+    for it in range(start_iter, MAX_ITERATIONS + 1):
         if MAX_COST_USD > 0 and total_cost >= MAX_COST_USD:
             final_status = "cost_exhausted"
             banner(
                 f"STOPPED — Claude spend ${total_cost:.4f} hit cap ${MAX_COST_USD:.2f}"
             )
             break
+        # A resumed phase applies to the first iteration only; every later one runs
+        # the full plan → execute → verify.
+        phase, resume_phase = resume_phase or "plan", None
         try:
-            total_cost += plan_step(it, prev_verdict)
-            total_cost += execute_step(it)
+            # A completed phase resets its attempt count — the next resume only backs
+            # away from a phase that has never got through.
+            if phase == "plan":
+                enter("plan", it)
+                total_cost += plan_step(it, prev_verdict)
+                attempts["plan"] = 0
+            if phase in ("plan", "execute"):
+                enter("execute", it)
+                total_cost += execute_step(it)
+                attempts["execute"] = 0
+            enter("verify", it)
             verdict, vcost = verify_step(it, baseline)
+            attempts["verify"] = 0
             total_cost += vcost
             log(
                 f"cumulative Claude spend: ${total_cost:.4f}"
@@ -1424,6 +1703,11 @@ def main():
         except StepError as e:
             banner("STOPPED — hard failure")
             log(str(e), prefix="✗")
+            log(
+                f"re-run to resume from here — {WORK_DIR}/{STATE_FILE} holds the "
+                f"checkpoint (--fresh to start over)",
+                prefix="↻",
+            )
             final_status = "error"
             break
 
@@ -1431,6 +1715,10 @@ def main():
 
         if status == "pass":
             final_status = "pass"
+            # The run is over, so the checkpoint would only mislead the next one.
+            # Every other exit keeps it: after a human fixes what blocked or stalled
+            # the loop, re-running re-verifies the tree instead of re-planning it.
+            clear_state()
             banner("DONE — all criteria met")
             break
 
@@ -1465,6 +1753,11 @@ def main():
     log(f"final status : {final_status}")
     log(f"claude spend : ${total_cost:.4f}  (non-Claude executors bill separately)")
     log(f"artifacts    : {PLAN_FILE}, {VERDICT_FILE}, {WORK_DIR}/diff.patch")
+    if final_status != "pass":
+        log(
+            f"resume       : re-run the same command to continue from "
+            f"{WORK_DIR}/{STATE_FILE} (--fresh to start over)"
+        )
     log("changes are staged but NOT committed — review, then commit or discard.")
     sys.exit(0 if final_status == "pass" else 1)
 
@@ -1647,7 +1940,7 @@ def parse_cli_overrides():
     global PLAN_CLAUDE_MODEL_NAME, CLARIFY_MODEL_NAME, IMPLEMENTATION_MODEL_NAME
     global EXECUTOR_BACKEND
     global VERIFICATION_CLAUDE_MODEL_NAME, MAX_ITERATIONS, TEST_COMMANDS, REPO_ROOT
-    global MAX_COST_USD, DRY_RUN
+    global MAX_COST_USD, DRY_RUN, FRESH
     global TASK_FILE, CONTEXT_FILE, WORK_DIR
     global AUTHOR_MODEL_NAME, AUTHOR_STORY_SRC, AUTHOR_FORCE
     p = argparse.ArgumentParser(description="Agentic plan/execute/verify loop.")
@@ -1666,6 +1959,12 @@ def parse_cli_overrides():
         action="store_true",
         help="print the exact commands and prompts each step would issue, then "
         "exit — no Claude calls, no executor, no edits, no spend.",
+    )
+    p.add_argument(
+        "--fresh",
+        action="store_true",
+        help=f"ignore any resume checkpoint in {WORK_DIR}/{STATE_FILE} and start the "
+        "run from scratch (re-runs the clarity gate and re-plans from iteration 1).",
     )
     p.add_argument(
         "--clarify-model",
@@ -1799,6 +2098,7 @@ def parse_cli_overrides():
     CONTEXT_FILE = a.context
     WORK_DIR = a.work_dir
     DRY_RUN = a.dry_run
+    FRESH = a.fresh
     # Author knobs — set unconditionally (the interactive run-wizard above is gated on
     # command == "run", so it never fires for `author`).
     AUTHOR_MODEL_NAME = (

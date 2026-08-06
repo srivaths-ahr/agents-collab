@@ -12,6 +12,33 @@ when an executor stops behaving.
 
 ### Added
 
+- **Resumable runs — a failed run no longer re-buys the work it already paid for.**
+  A run that died partway (executor timeout, malformed verdict, Ctrl-C) used to start
+  completely over on the next `python driver.py`: clarity gate again, plan again,
+  executor again, iteration counter and cost cap both reset to zero. The driver now
+  checkpoints `.loop/state.json` before each step and **re-enters at the phase that
+  died** — stopped in EXECUTE, it skips the gate and the plan; stopped in VERIFY, it
+  skips the executor run too and just scores the tree. `--fresh` forces a clean start.
+  Cumulative spend and the iteration number carry across invocations, so
+  `--max-cost-usd` and `--max-iterations` bound *the work* rather than each attempt (a
+  run that crashed three times previously spent three times its cap). The checkpoint
+  is discarded — **with a printed reason** — whenever it can't be trusted: `task.md` /
+  `context.md` / `clarifications.md` edited (hashed together by `input_fingerprint`),
+  `HEAD` moved, an older `STATE_VERSION`, or `--fresh`. It's cleared on a pass and
+  deliberately kept after `blocked`/`stalled`, so a human can fix the code and re-run
+  straight into VERIFY. The decision is pure (`resume_decision` — the caller does the
+  file/git I/O and passes results in), covered by `tests/test_resume.py`; the file is
+  written via temp + `os.replace`, so a killed driver never leaves half a checkpoint.
+  The recorded phase is treated as a **proposal**, not an instruction: `resume_entry`
+  (also pure, also tested) backs the resume *up* the pipeline when re-entering there
+  couldn't work — `plan.md` missing or empty → PLAN, no staged edits → EXECUTE (which
+  would otherwise buy a verdict of "nothing changed" plus an iteration to fix it), or
+  the same phase failed `MAX_PHASE_ATTEMPTS` times → one step back, since a
+  deterministic executor failure will fail identically a third time but a different
+  plan might not. That last guard is the across-runs sibling of
+  `MAX_IDENTICAL_FAILURES`, which only catches a loop going nowhere *within* one run.
+  Every step back prints its reason.
+
 - **`jira-to-task` agent skill — a Jira ticket to a `task.md`, interactively, in the
   tool you already use.** `driver.py author` works, but it's a one-shot terminal pass
   over a story you had to export yourself. The skill is the same job done where your
@@ -65,6 +92,17 @@ when an executor stops behaving.
   (stdin isn't a TTY, so the live Q&A can't run) — use `--from <path>` for the
   interactive loop. Author-stage Q&A is kept in a separate `.loop/author_answers.md`, so
   it never pollutes the run's `clarifications.md`.
+
+### Fixed
+
+- **A re-run after a partial execution scored a truncated diff.** `capture_baseline()`
+  snapshots the working tree, so a second invocation captured a baseline that already
+  contained the executor's edits from the first. Those edits then vanished from
+  `git diff --cached <baseline>`, and the verifier judged the criteria against a diff
+  that was missing the work — marking criteria failed that were in fact satisfied, and
+  buying another plan → execute → verify iteration to "fix" them. Resuming reuses the
+  original baseline, and a checkpoint whose `HEAD` moved is rejected rather than
+  trusted.
 
 ## [0.4.0] — 2026-07-01
 
