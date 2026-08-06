@@ -38,8 +38,10 @@ Given an issue key (`PROJ-123`), a Jira URL, pasted text, or a file path:
 1. Fetch the issue. Pull **summary, description, acceptance criteria, issue type,
    status, labels, components, fix version, parent/epic, subtasks, linked issues,
    and comments**. Comments routinely carry the real decisions — read them.
-2. If it is an **epic** or has subtasks, say so immediately and go to Step 5 (split)
-   before doing anything else.
+2. Note whether it's an epic, has subtasks, or has open blocked-by links — and read
+   what the subtasks actually say. These are **inputs to weigh at Step 5, not
+   conclusions**. Decide nothing about splitting yet; you can't judge it before
+   you've drafted the criteria.
 3. If a description references a design doc, Confluence page, or another ticket,
    fetch it too when the MCP allows; otherwise list it as an unresolved reference.
 
@@ -109,20 +111,37 @@ Call out explicitly, in a line each:
 - Any story requirement you **dropped** as out of scope, and why.
 - Any reference in the story that didn't resolve in the repo.
 
-## Step 5 — One unit only
+## Step 5 — One unit, and when to ask
 
-The loop takes **one** task to a verified pass. It does not decompose stories and
-has no batch mode.
+You write exactly **one** `task.md`. Never two, never a folder of them — the loop
+takes one task to a verified pass and has no batch mode.
 
-If the story spans several units of work, **do not split it into several files**.
-Instead:
+**Default to one unit.** Most stories are one loop run, *including most stories with
+subtasks*. Treat it as multi-unit only when the acceptance criteria themselves can't
+land together:
 
-1. Name the split you'd propose — the units, in order, with dependencies.
-2. Ask which one this run should target (recommend the one that unblocks the rest).
-3. Author `task.md` for that single unit, and record the remaining units under
-   `## Notes / constraints` so nothing is lost.
+- A criterion can't be verified until another has shipped (the schema migration
+  before the API that reads it).
+- Two criteria could each pass while the other fails, with no change in common.
+- The work spans different repos or services.
 
-The user re-runs this skill for the next unit when the first one passes.
+**Subtasks are not evidence of any of that.** They usually record how a team tracks
+one change — "write tests", "update docs", "code review" — so read what they say
+rather than counting them. The same goes for a long description or a lot of
+criteria: five criteria on one function are still one unit.
+
+If, *after drafting*, you genuinely think it's more than one unit — **ask; don't
+decide**:
+
+> "PROJ-123 has four subtasks. Reading them, C1–C3 look like one change, but the
+> schema migration in C4 has to ship before C2 can be verified. Split it — migration
+> this run, the rest next — or do it all in one?
+> *Default if skipped: one unit, all four criteria.*"
+
+If the user confirms a split: name the units in order with their dependencies, write
+`task.md` for the one they pick (recommend whichever unblocks the rest), and record
+the others under `## Notes / constraints` so nothing is lost. They re-run this skill
+for the next unit once the first passes.
 
 ## Step 6 — Write the files
 
@@ -213,7 +232,8 @@ in `reference/example-walkthrough.md`.
 ## Hard rules
 
 - **`task.md`, never `plan.md`.** The loop owns planning.
-- **One unit per `task.md`.** Flag splits; never emit several tasks.
+- **One unit per `task.md`.** Default to one; subtasks alone never make it two. Ask
+  before splitting, and never emit several tasks either way.
 - **Read-only against Jira** unless the user explicitly asks otherwise and confirms.
 - **No network beyond the Jira MCP.** No credentials, no scraping.
 - **Never invent a repo path.** Verify it or mark it `TBD — confirm`.

@@ -32,7 +32,7 @@ for an API token.
 | Issue type | Framing | `Bug` → the criterion is a regression test that fails before and passes after. `Spike` → not loop-runnable; say so. |
 | Components / labels | `## In scope` hints | Map to real directories via the repo, never verbatim. |
 | Parent / epic link | Split signal | Read the epic for constraints the child assumes. |
-| Subtasks | Split signal | Any subtask means Step 5 applies. |
+| Subtasks | Context, **not** a split signal | Read what they say. Usually workflow tracking ("write tests", "QA") — one unit. Only relevant if they describe changes that can't land together, and even then Step 5 asks rather than decides. |
 | Linked issues (`blocks`, `depends on`) | `## Out of scope` or `## Notes` | A still-open blocked-by link is a blocking unknown — ask. |
 | Comments | Everything | Decisions, reversals, and "actually we decided X" live here. A late comment overrides the description; say so when it does. |
 | Attachments / design links | `## Notes / constraints` | Reference them; you generally can't read images. If a criterion depends on one, ask. |
@@ -56,13 +56,21 @@ and say so in Step 4. If dropping it would lose real intent, ask.
 
 ## Epics and multi-unit stories
 
-Signals the story is more than one loop run:
+**Default to one unit.** The question is never "how many subtasks does it have?" but
+"can these acceptance criteria land and be verified together?"
 
-- Issue type is `Epic`, or it has subtasks.
-- The description has phases, a numbered rollout, or "then".
-- Acceptance criteria span layers that can't land together (schema migration +
-  API + UI).
-- Two criteria could each pass while the other fails, with no shared change.
+Real signals it's more than one loop run:
 
-When you see these, go to Step 5 of `SKILL.md`. Propose the split, let the user pick
-one unit, and put the rest under `## Notes / constraints` — never emit two files.
+- Acceptance criteria span layers that can't land together — the schema migration
+  has to ship before the API that reads it can be tested.
+- Two criteria could each pass while the other fails, with no change in common.
+- The work spans different repos or services.
+- Issue type is `Epic` — usually, though an epic holding one real change is still
+  one unit.
+
+**Not signals on their own:** having subtasks (usually workflow tracking), a long
+description, phases in the prose, or a lot of acceptance criteria. Five criteria on
+one function are one unit.
+
+When a real signal fires, go to Step 5 of `SKILL.md`, which **asks** the user with a
+stated default of one unit. Never split silently, and never emit two files.
