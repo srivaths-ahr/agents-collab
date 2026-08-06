@@ -221,6 +221,68 @@ with few or no follow-ups.
 
 Then review the `task.md` it wrote and run the loop as usual.
 
+### Resuming a failed run
+
+A run that dies partway — the executor times out, the verifier returns something
+malformed, you Ctrl-C — leaves a checkpoint at `.loop/state.json`. **Re-run the same
+command and it picks up where it stopped**, instead of re-buying work you already
+paid for:
+
+| Died in | Re-run does | Skipped |
+|---|---|---|
+| PLAN     | plan → execute → verify | clarity gate |
+| EXECUTE  | execute → verify        | clarity gate + **plan** |
+| VERIFY   | verify only             | clarity gate + plan + **the whole executor run** |
+
+```
+── RESUMING ──
+· .loop/state.json: iteration 3, stopped in verify
+· inputs unchanged — reusing baseline a1b2c3d4e5
+· skipping CLARIFY (passed on identical inputs)
+· skipping PLAN    (plan.md still valid)
+· skipping EXECUTE (edits already applied)
+· carried spend: $1.2345 / $5.00 cap
+```
+
+**The recorded phase is where it died, not necessarily where it's worth restarting.**
+Before re-entering, the driver checks whether that step can actually succeed, and
+backs up when it can't — saying so each time:
+
+- `plan.md` missing or empty → back up to PLAN. EXECUTE has no input without it.
+- No staged edits → back up to EXECUTE. Verifying an unchanged tree buys a verdict
+  of "nothing changed" and then a whole iteration to fix it.
+- The same phase has now failed twice → back up one step. A deterministic executor
+  failure will fail identically a third time; a *different plan* might not. (This is
+  the across-runs sibling of the in-run stall guard — `MAX_PHASE_ATTEMPTS` vs
+  `MAX_IDENTICAL_FAILURES`.)
+
+```
+· EXECUTE failed 2x — backing up to PLAN; retrying it unchanged would only fail again
+· skipping CLARIFY (passed on identical inputs)
+```
+
+This is about correctness as much as cost. The baseline is a snapshot of the working
+tree taken at the start of a run; re-capturing it after a partial execution would
+absorb the edits the executor already made, so they'd vanish from the diff and the
+verifier would score a **truncated** diff — failing criteria that were actually met,
+and buying another iteration to "fix" them. Resuming reuses the original baseline.
+
+Carrying the cost and iteration forward also means `--max-cost-usd` and
+`--max-iterations` bound *the work*, not each invocation. Without that, a run that
+crashes three times spends three times its cap.
+
+The checkpoint is **discarded, with a printed reason**, whenever it can't be trusted:
+
+- `task.md`, `context.md`, or `clarifications.md` changed — the old plan was written
+  for a different task, so re-planning is the point.
+- `HEAD` moved (you committed, reset, or switched branch) — the baseline tree no
+  longer anchors a meaningful diff.
+- It came from a different driver version, or you passed `--fresh`.
+
+It's cleared on a **pass**. It's deliberately *kept* after `blocked` or `stalled`:
+fix the code yourself and re-run, and the loop goes straight to VERIFY to score your
+fix — no re-plan, no second executor pass.
+
 ### Before you spend: `doctor` and `--dry-run`
 
 Two zero-cost previews, so an unfamiliar tool with auto-approved edits never
@@ -257,6 +319,7 @@ Set defaults at the top of `driver.py`, or override per run:
 | `--max-iterations` | hard cap on loop rounds †                                                       |
 | `--max-cost-usd`   | hard cap on cumulative Claude spend in USD (0 = no limit) †                     |
 | `--dry-run`        | print each step's command + prompt and exit; no calls, edits, or spend          |
+| `--fresh`          | ignore `.loop/state.json` and restart from the clarity gate (see [Resuming](#resuming-a-failed-run)) |
 | `--repo`           | path to the target git repo (default: current dir)                              |
 | `--task`           | task file to run (default: `task.md`) — point at one unit to loop a story        |
 | `--context`        | architecture-map file (default: `context.md`); shared across units              |

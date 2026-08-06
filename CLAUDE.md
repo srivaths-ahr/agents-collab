@@ -97,7 +97,8 @@ Key files and their roles:
 
 State lives in the driver and on disk: `task.md` (input, the source of truth), `context.md`
 (input, architecture map), `plan.md`, the staged git diff, `verdict.json`, plus the
-`.loop/` scratch dir (`diff.patch`, `test_output.txt`, `*_raw.txt`, `executor_output.txt`).
+`.loop/` scratch dir (`diff.patch`, `test_output.txt`, `*_raw.txt`, `executor_output.txt`,
+and `state.json` — the resume checkpoint).
 `task.md`/`context.md` and all generated artifacts are gitignored — they are per-run user
 content, never committed into this tool repo.
 
@@ -153,7 +154,30 @@ content, never committed into this tool repo.
 `driver.py` uses an exception hierarchy: `StepError` (recoverable — retry then stop with a
 reason) and its subclass `FatalError` (non-retryable — missing CLI, unknown backend, bad
 config — abort at once). `NeedsClarification` carries open questions to halt the loop
-cleanly before any planning spend. Stop conditions: `pass`, `blocked` (human needed),
+cleanly before any planning spend.
+
+**Every non-`pass` exit is resumable.** The driver checkpoints `.loop/state.json`
+before each step (baseline tree, `head`, an `input_fingerprint` over
+`task.md`+`context.md`+`clarifications.md`, iteration, phase, cumulative cost,
+`prev_verdict`, stall state), so re-running re-enters at the phase that died —
+skipping the clarity gate, the plan, and even the executor per `SKIPPED_BY_PHASE`.
+Both decisions are pure and unit-tested in `tests/test_resume.py` — `resume_decision`
+(may we reuse this checkpoint at all?) and `resume_entry` (where should we actually
+re-enter?); the caller does the file/git I/O and passes results in. **The recorded
+phase is a proposal, not an instruction**: `resume_entry` backs UP the pipeline when
+the phase's input is missing (`plan.md` empty → PLAN; no staged diff → EXECUTE) or
+when `attempts[phase] >= MAX_PHASE_ATTEMPTS`, because re-entering a step that is
+bound to fail is the spend the checkpoint exists to avoid. Anything it returns must
+be a `SKIPPED_BY_PHASE` key, and every step back must carry a printed note. **Reusing the baseline is a
+correctness requirement, not an optimization**: `capture_baseline()` snapshots the
+working tree, so re-capturing it after a partial execution absorbs the executor's
+edits and the verifier then scores a truncated diff. Any doubt — changed inputs,
+moved `HEAD`, older `STATE_VERSION`, `--fresh` — starts over *with a printed reason*;
+never honour a checkpoint silently, and never discard one silently either. Clear the
+checkpoint only on `pass`; keeping it after `blocked`/`stalled` is what lets a human
+fix the code and re-run straight into VERIFY.
+
+Stop conditions: `pass`, `blocked` (human needed),
 `stalled` (same failure + same diff `MAX_IDENTICAL_FAILURES` times), iteration budget or
 `MAX_COST_USD` exhausted, or malformed verifier output.
 
